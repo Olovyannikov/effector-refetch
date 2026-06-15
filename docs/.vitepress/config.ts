@@ -73,6 +73,7 @@ const enSidebar = {
       items: [
         { text: 'SSR & testing', link: '/recipes/ssr-and-testing' },
         { text: 'Auto-refetch & polling', link: '/recipes/auto-refetch' },
+        { text: 'Dependent queries', link: '/recipes/dependent-queries' },
         { text: 'Selecting slices', link: '/recipes/select' },
         { text: 'Error handling', link: '/recipes/error-handling' },
       ],
@@ -97,6 +98,7 @@ const enSidebar = {
       text: 'Integrations',
       items: [
         { text: 'Streaming (SSE & WS)', link: '/recipes/streaming' },
+        { text: 'File uploads (FormData)', link: '/recipes/file-uploads' },
         { text: 'GraphQL', link: '/recipes/graphql' },
         { text: 'Router & loaders', link: '/recipes/router' },
         { text: 'Inspector & logging', link: '/recipes/inspector' },
@@ -165,6 +167,7 @@ const ruSidebar = {
       items: [
         { text: 'SSR и тесты', link: '/ru/recipes/ssr-and-testing' },
         { text: 'Авто-рефетч и поллинг', link: '/ru/recipes/auto-refetch' },
+        { text: 'Зависимые запросы', link: '/ru/recipes/dependent-queries' },
         { text: 'Выбор срезов (select)', link: '/ru/recipes/select' },
         { text: 'Обработка ошибок', link: '/ru/recipes/error-handling' },
       ],
@@ -189,6 +192,7 @@ const ruSidebar = {
       text: 'Интеграции',
       items: [
         { text: 'Стриминг (SSE и WS)', link: '/ru/recipes/streaming' },
+        { text: 'Загрузка файлов (FormData)', link: '/ru/recipes/file-uploads' },
         { text: 'GraphQL', link: '/ru/recipes/graphql' },
         { text: 'Роутер и loaders', link: '/ru/recipes/router' },
         { text: 'Инспектор и логи', link: '/ru/recipes/inspector' },
