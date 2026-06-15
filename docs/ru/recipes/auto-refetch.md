@@ -72,6 +72,35 @@ No-op, пока запрос не запускался (`status !== 'initial'`) 
 `refetchInterval` (по времени) — это по зависимости. (Если значение источника должно реально
 менять запрос — прокидывайте его в параметры через `connectQuery` / `sample` в `start`.)
 
+## Триггеры web-API (`@withease/web-api`)
+
+Трекеры [`@withease/web-api`](https://withease.effector.dev/web-api/) реализуют протокол
+`@@trigger`, поэтому подключаются в `keepFresh({ triggers })` **напрямую** — без адаптера:
+
+```ts
+import { trackPageVisibility, trackNetworkStatus } from '@withease/web-api';
+import { keepFresh } from 'effector-refetch';
+
+const network = trackNetworkStatus();
+
+// рефетч, когда вкладка снова становится видимой (трекер фаерит свой `visible`)
+keepFresh(dashboardQuery, { triggers: [trackPageVisibility()] });
+
+// …или на любое обычное событие, которое отдаёт трекер
+keepFresh(dashboardQuery, { triggers: [network.online] });
+```
+
+**Сторы** трекеров годятся в остальные слоты: гейтите запрос пока офлайн через `enabled`, или
+используйте стор трекера как `source`:
+
+```ts
+createQuery({ effect: fx, enabled: network.$online });
+```
+
+Это пересекается со встроенными `refetchOnWindowFocus` / `refetchOnReconnect` /
+`createNetworkBarrier` выше — для типовых случаев берите встроенные, а `@withease/web-api` — когда
+нужно больше сигналов (геолокация, media query, ориентация экрана, …) за тем же `@@trigger` API.
+
 ## Композиция с patronum
 
 Триггеры запроса — обычные события effector, поэтому их можно гонять любым оператором

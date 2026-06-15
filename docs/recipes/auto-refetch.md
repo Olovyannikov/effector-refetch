@@ -72,6 +72,35 @@ No-op until the query has run (`status !== 'initial'`) and while it's disabled. 
 `refetchInterval` (time-based) — this is dependency-based. (If the source value should actually
 change the request, thread it through the params instead — `connectQuery` / `sample` into `start`.)
 
+## Web-API triggers (`@withease/web-api`)
+
+[`@withease/web-api`](https://withease.effector.dev/web-api/) trackers implement the `@@trigger`
+protocol, so they drop **straight** into `keepFresh({ triggers })` — no adapter:
+
+```ts
+import { trackPageVisibility, trackNetworkStatus } from '@withease/web-api';
+import { keepFresh } from 'effector-refetch';
+
+const network = trackNetworkStatus();
+
+// refetch when the tab becomes visible again (tracker fires its `visible` event)
+keepFresh(dashboardQuery, { triggers: [trackPageVisibility()] });
+
+// …or on any plain event the tracker exposes
+keepFresh(dashboardQuery, { triggers: [network.online] });
+```
+
+Tracker **stores** fit the other slots: gate a query while offline with `enabled`, or treat a
+tracker's store as a `source`:
+
+```ts
+createQuery({ effect: fx, enabled: network.$online });
+```
+
+This overlaps the built-in `refetchOnWindowFocus` / `refetchOnReconnect` / `createNetworkBarrier`
+above — use the built-ins for those common cases, and reach for `@withease/web-api` when you want
+more signals (geolocation, media query, screen orientation, …) behind the same `@@trigger` API.
+
 ## Compose with patronum
 
 A query's triggers are plain effector events, so you can drive them with any

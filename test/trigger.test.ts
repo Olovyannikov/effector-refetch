@@ -73,6 +73,32 @@ describe('@@trigger protocol', () => {
     expect(runs).toBe(2);
   });
 
+  it('keepFresh consumes an external @@trigger object (e.g. @withease/web-api)', async () => {
+    // shape of a withease tracker: a plain object implementing @@trigger
+    const fired = createEvent<void>(); // stands in for trackPageVisibility().visible
+    const setup = createEvent<void>();
+    const teardown = createEvent<void>();
+    let setupCalls = 0;
+    setup.watch(() => setupCalls++);
+    const tracker = { '@@trigger': () => ({ fired, setup, teardown }) };
+
+    let runs = 0;
+    const getFx = createEffect(async (id: number) => {
+      runs++;
+      return id;
+    });
+    const query = createQuery({ effect: getFx });
+    keepFresh(query, { triggers: [tracker] });
+    expect(setupCalls).toBeGreaterThan(0); // keepFresh activates the trigger on wiring
+
+    const scope = fork();
+    await allSettled(query.start, { scope, params: 1 });
+    expect(runs).toBe(1);
+
+    await allSettled(fired, { scope, params: undefined });
+    expect(runs).toBe(2); // tracker fired -> refetch with last params
+  });
+
   it('a trigger is a no-op before the query has run', async () => {
     let runs = 0;
     const getFx = createEffect(async () => {
