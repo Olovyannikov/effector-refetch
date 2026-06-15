@@ -64,21 +64,45 @@ const fetchFx = createRequestFx(async (id: number) => {
 });
 ```
 
+## Type guards
+
+Instead of `instanceof` + `.status` casts, narrow errors with the built-in guards:
+
+```ts
+import { isRequestError, isHttpError, isTimeoutError, isValidationError } from 'effector-refetch';
+
+const message = (e: unknown) => {
+  if (isHttpError(e, 401)) return 'Please sign in';
+  if (isHttpError(e, (s) => s >= 500)) return 'Server error — try again';
+  if (isTimeoutError(e)) return 'Timed out';
+  if (isValidationError(e)) return `Bad data: ${e.validationErrors.join(', ')}`;
+  if (isRequestError(e)) return e.message; // network error (no status)
+  return 'Unknown error';
+};
+```
+
+- `isHttpError(e, status?)` — a `RequestError` with a `status`; pass a code (`404`) or a predicate
+  (`(s) => s >= 500`).
+- `isTimeoutError(e)` — a run aborted by [`timeout`](/api/queries).
+- `isValidationError(e)` — a failed [contract / `validate`](/api/http) (narrows to `.validationErrors`).
+- `isRequestError(e)` — any normalized transport error.
+
 ## Deciding what to retry
 
 By default `retry` repeats on any failure. Use `filter` to retry only the transient ones (skip
 4xx), and `suppressIntermediateErrors` to keep `$error` clean until the final attempt:
 
 ```ts
+import { isHttpError, isTimeoutError } from 'effector-refetch';
+
 const query = createQuery({
   effect: fetchUserFx,
   retry: {
     times: 3,
     delay: (attempt) => 2 ** attempt * 200, // backoff
-    filter: ({ error }) => {
-      const status = (error as RequestError).status ?? 0;
-      return status === 0 || status >= 500; // network / server only
-    },
+    // network errors, timeouts, and 5xx — never 4xx
+    filter: ({ error }) =>
+      isTimeoutError(error) || isHttpError(error, (s) => s >= 500) || !isHttpError(error),
     suppressIntermediateErrors: true, // $error stays null while retrying
   },
 });

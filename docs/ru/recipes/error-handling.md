@@ -64,21 +64,45 @@ const fetchFx = createRequestFx(async (id: number) => {
 });
 ```
 
+## Type guards
+
+Вместо `instanceof` + кастов к `.status` сужайте ошибки встроенными guard'ами:
+
+```ts
+import { isRequestError, isHttpError, isTimeoutError, isValidationError } from 'effector-refetch';
+
+const message = (e: unknown) => {
+  if (isHttpError(e, 401)) return 'Войдите в аккаунт';
+  if (isHttpError(e, (s) => s >= 500)) return 'Ошибка сервера — повторите';
+  if (isTimeoutError(e)) return 'Таймаут';
+  if (isValidationError(e)) return `Плохие данные: ${e.validationErrors.join(', ')}`;
+  if (isRequestError(e)) return e.message; // сетевая ошибка (без status)
+  return 'Неизвестная ошибка';
+};
+```
+
+- `isHttpError(e, status?)` — `RequestError` со `status`; передайте код (`404`) или предикат
+  (`(s) => s >= 500`).
+- `isTimeoutError(e)` — запуск, прерванный по [`timeout`](/ru/api/queries).
+- `isValidationError(e)` — провал [контракта / `validate`](/ru/api/http) (сужает к `.validationErrors`).
+- `isRequestError(e)` — любая нормализованная транспортная ошибка.
+
 ## Что ретраить
 
 По умолчанию `retry` повторяет при любом сбое. `filter` оставляет только временные (пропуская
 4xx), а `suppressIntermediateErrors` держит `$error` чистым до финальной попытки:
 
 ```ts
+import { isHttpError, isTimeoutError } from 'effector-refetch';
+
 const query = createQuery({
   effect: fetchUserFx,
   retry: {
     times: 3,
     delay: (attempt) => 2 ** attempt * 200, // backoff
-    filter: ({ error }) => {
-      const status = (error as RequestError).status ?? 0;
-      return status === 0 || status >= 500; // только сеть / сервер
-    },
+    // сетевые ошибки, таймауты и 5xx — никогда 4xx
+    filter: ({ error }) =>
+      isTimeoutError(error) || isHttpError(error, (s) => s >= 500) || !isHttpError(error),
     suppressIntermediateErrors: true, // $error остаётся null во время ретраев
   },
 });

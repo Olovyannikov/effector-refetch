@@ -210,6 +210,18 @@ const addPost = createMutation({ effect: createPostFx });
 See [`examples/http-clients.ts`](./examples/http-clients.ts) for a full query +
 mutation + invalidate + optimistic flow.
 
+Narrow errors with the guards `isRequestError` / `isHttpError(e, status?)` / `isTimeoutError`
+(and `isValidationError`) instead of `instanceof` + status casts:
+
+```ts
+import { isHttpError, isTimeoutError } from 'effector-refetch';
+sample({
+  clock: api.finished.fail,
+  filter: ({ error }) => isHttpError(error, 401),
+  target: authBarrier.lock,
+});
+```
+
 ### Composing from a shared factory
 
 Bake `baseURL` + headers/auth into a factory once, then declare endpoints in one

@@ -16,7 +16,9 @@ const userQuery = createQuery({ effect: getUserFx, cache: true });
 
 Хендлер получает `AbortSignal`; контроллером владеет query и срабатывает им на `cancel` /
 `reset` и при вытеснении `TAKE_LATEST` — так запрос реально прерывается. Ошибки нормализуются
-в `RequestError` (`status`, `data`).
+в `RequestError` (`status`, `data`). Сужайте их guard'ами `isRequestError` /
+`isHttpError(e, status?)` / `isTimeoutError` (и `isValidationError`) — см.
+[рецепт обработки ошибок](/ru/recipes/error-handling#type-guards).
 
 Это просто эффект — внутри работает что угодно: multipart **FormData**-загрузки
 ([`examples/form-data.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/form-data.ts)),

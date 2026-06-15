@@ -54,6 +54,9 @@ export {
   createRequestFx,
   RequestError,
   normalizeRequestError,
+  isRequestError,
+  isHttpError,
+  isTimeoutError,
   type RequestContext,
   type CreateRequestFxOptions,
 } from './request';
@@ -68,6 +71,7 @@ export {
 } from './cache';
 export {
   ValidationError,
+  isValidationError,
   createContract,
   zodContract,
   standardSchemaContract,

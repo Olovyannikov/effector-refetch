@@ -16,7 +16,9 @@ const userQuery = createQuery({ effect: getUserFx, cache: true });
 
 The handler receives an `AbortSignal`; the query owns the controller and fires it on
 `cancel` / `reset` and on `TAKE_LATEST` supersede — so the request actually aborts.
-Errors are normalized to `RequestError` (`status`, `data`).
+Errors are normalized to `RequestError` (`status`, `data`). Narrow them with the guards
+`isRequestError` / `isHttpError(e, status?)` / `isTimeoutError` (and `isValidationError`) — see
+the [error-handling recipe](/recipes/error-handling#type-guards).
 
 It's just an effect, so anything works inside: multipart **FormData** uploads
 ([`examples/form-data.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/form-data.ts)),

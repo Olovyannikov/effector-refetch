@@ -23,6 +23,11 @@ export class ValidationError extends Error {
   }
 }
 
+/** True if `e` is a {@link ValidationError} (a failed contract / `validate`). */
+export function isValidationError(e: unknown): e is ValidationError {
+  return e instanceof ValidationError;
+}
+
 /** Build a contract by hand. */
 export function createContract<Data>(c: {
   isData: (raw: unknown) => boolean;

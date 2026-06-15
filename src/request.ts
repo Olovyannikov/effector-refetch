@@ -25,6 +25,30 @@ export class RequestError extends Error {
   }
 }
 
+/** True if `e` is a normalized {@link RequestError}. */
+export function isRequestError(e: unknown): e is RequestError {
+  return e instanceof RequestError;
+}
+
+/**
+ * True if `e` is an HTTP {@link RequestError} (carries a `status`). Optionally
+ * match a specific code or a predicate:
+ *
+ *   isHttpError(e)          // any error with a status
+ *   isHttpError(e, 404)     // exactly 404
+ *   isHttpError(e, (s) => s >= 500) // any 5xx
+ */
+export function isHttpError(e: unknown, status?: number | ((status: number) => boolean)): e is RequestError {
+  if (!(e instanceof RequestError) || e.status == null) return false;
+  if (status == null) return true;
+  return typeof status === 'function' ? status(e.status) : e.status === status;
+}
+
+/** True if `e` is a {@link RequestError} produced by a `timeout` (aborted past its deadline). */
+export function isTimeoutError(e: unknown): e is RequestError {
+  return e instanceof RequestError && e.reason === 'timeout';
+}
+
 export function normalizeRequestError(err: unknown): RequestError {
   if (err instanceof RequestError) return err;
   const e = err as {
