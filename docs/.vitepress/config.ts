@@ -92,6 +92,7 @@ const enSidebar = {
         { text: 'Groups & cache access', link: '/recipes/groups-and-cache' },
         { text: 'Shared request factory', link: '/recipes/shared-factory' },
         { text: 'Auth & barrier', link: '/recipes/auth-barrier' },
+        { text: 'Circuit breaker', link: '/recipes/circuit-breaker' },
       ],
     },
     {
@@ -186,6 +187,7 @@ const ruSidebar = {
         { text: 'Группы и кэш', link: '/ru/recipes/groups-and-cache' },
         { text: 'Общая фабрика запросов', link: '/ru/recipes/shared-factory' },
         { text: 'Авторизация и barrier', link: '/ru/recipes/auth-barrier' },
+        { text: 'Circuit breaker', link: '/ru/recipes/circuit-breaker' },
       ],
     },
     {
