@@ -90,7 +90,24 @@ This is not "clone farfetched". It is: keep the friendly, effect-first core, the
 - [x] Bundle-size budget (`size-limit`, core ~5.5 kB), `sideEffects: false` tree-shaking, ESM/CJS builds + typed `exports`
 - [x] CI: typecheck / tests / build / size-limit (`ci.yml`); release automation via changesets (`release.yml` + `.changeset/`)
 - [x] Normalized list updates from mutations — `update`/`optimisticUpdate` recipe + spec (`docs/recipes/list-updates`)
-- [ ] API freeze + tag 1.0 — maintainer decision once the API has soaked; pre-1.0 minors may still break (called out in the changelog)
+
+### 1.0 — exit criteria
+
+1.0 is a **semver stability commitment**, not a feature milestone — the feature set is already at
+parity with farfetched/TanStack. So 1.0 is gated on _finalizing the API shape_ and _soaking it in
+real use_, not on a date. (For context: farfetched, far more mature, deliberately stays in 0.x for
+the same reason — its open 1.0 blockers are API-shape questions like "merge `contract`/`validate`"
+and "specify behavior when multiple operators of one type are applied". We share #2–#3 below.)
+
+Concrete, checkable gates before tagging 1.0:
+
+- [x] **Published types are correct** — `@arethetypeswrong/cli` green across node10 / node16 (CJS+ESM) / bundler (CI-gated).
+- [ ] **`contract` + `validate` — decide the final shape.** Keep them as two fields that **compose** at runtime (both run; `contract` then `validate`), and document that as the intended, final design (i.e. _not_ to be merged later). Resolves the same open question farfetched is still holding.
+- [ ] **Multiple operators of the same type — specify + test the semantics.** Pin and document: **last-wins** for `retry` / `cache` / `concurrency` / `timeout` / `applyBarrier` (they're engine setters), **additive** for `keepFresh` / `invalidate` / `update` (each call adds wiring). Add a spec test so it can't drift.
+- [ ] **Public surface frozen** — audit `src/index.ts`: no planned renames/removals of exported names or option keys; anything still uncertain is settled or marked clearly experimental.
+- [ ] **Soak / community signal** — a handful of real-world adopters (or a fixed cooldown with no open API-shape complaints) before committing to compatibility. Avoid an open-ended hold — this is the trigger that turns "waiting for feedback" into a decision.
+- [ ] **Versioned docs snapshot** at the cut (see the VitePress item above).
+- [ ] **API freeze + tag 1.0** — once the above are checked: a `major` changeset; pre-1.0 minors may still break (called out in the changelog).
 
 ## Compared to TanStack Query — gaps to close
 
