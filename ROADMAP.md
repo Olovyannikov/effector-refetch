@@ -102,8 +102,8 @@ and "specify behavior when multiple operators of one type are applied". We share
 Concrete, checkable gates before tagging 1.0:
 
 - [x] **Published types are correct** — `@arethetypeswrong/cli` green across node10 / node16 (CJS+ESM) / bundler (CI-gated).
-- [ ] **`contract` + `validate` — decide the final shape.** Keep them as two fields that **compose** at runtime (both run; `contract` then `validate`), and document that as the intended, final design (i.e. _not_ to be merged later). Resolves the same open question farfetched is still holding.
-- [ ] **Multiple operators of the same type — specify + test the semantics.** Pin and document: **last-wins** for `retry` / `cache` / `concurrency` / `timeout` / `applyBarrier` (they're engine setters), **additive** for `keepFresh` / `invalidate` / `update` (each call adds wiring). Add a spec test so it can't drift.
+- [x] **`contract` + `validate` — final shape decided.** Two fields that **compose** at runtime (both run; `contract` then `validate`, first failure wins) — documented as the intended, final design (_not_ to be merged). Spec test in `test/validation.test.ts`. Resolves the same open question farfetched is still holding.
+- [x] **Multiple operators of the same type — specified + tested.** **Last-wins** for `retry` / `cache` / `concurrency` / `timeout` / `applyBarrier` (engine setters), **additive** for `keepFresh` / `invalidate` / `update` (each call adds wiring). Documented on the Operators page; pinned by `test/multi-operators.test.ts`.
 - [ ] **Public surface frozen** — audit `src/index.ts`: no planned renames/removals of exported names or option keys; anything still uncertain is settled or marked clearly experimental.
 - [ ] **Soak / community signal** — a handful of real-world adopters (or a fixed cooldown with no open API-shape complaints) before committing to compatibility. Avoid an open-ended hold — this is the trigger that turns "waiting for feedback" into a decision.
 - [ ] **Versioned docs snapshot** at the cut (see the VitePress item above).

@@ -164,6 +164,10 @@ createQuery({ effect: getPriceFx, validate: ({ result }) => result >= 0 || ['neg
 Contracts are **structural** — the schema libraries are not imported; you pass your own
 schema/validator. On failure, `$error` is a `ValidationError` with `.validationErrors`.
 
+`contract` and `validate` are **two fields that compose**: if both are given, the `contract` runs
+first, then `validate`, and the first failure wins. This is the intended, final design — they stay
+separate (a schema check vs. an ad-hoc predicate), not a single merged field.
+
 ::: tip @withease/contracts — no adapter needed
 
 [`@withease/contracts`](https://withease.effector.dev/contracts/) produces objects with the exact

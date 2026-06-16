@@ -153,6 +153,42 @@ describe('validation', () => {
     expect(err.validationErrors.length).toBeGreaterThan(0);
   });
 
+  it('contract + validate compose — both run, contract first, first failure wins', async () => {
+    const contract = createContract<{ n: number }>({
+      isData: (raw) => typeof (raw as { n?: unknown })?.n === 'number',
+      getErrorMessages: () => ['contract: not a number'],
+    });
+    const make = (value: unknown) =>
+      createQuery({
+        effect: createEffect(async () => value as { n: number }),
+        contract,
+        validate: ({ result }) => (result.n > 0 ? true : ['validate: not positive']),
+      });
+
+    // contract fails first -> its message (validate is not reached)
+    let scope = fork();
+    let q = make({ n: 'x' });
+    await allSettled(q.start, { scope });
+    expect((scope.getState(q.$error) as ValidationError).validationErrors).toEqual([
+      'contract: not a number',
+    ]);
+
+    // contract passes, validate fails -> validate's message
+    scope = fork();
+    q = make({ n: -1 });
+    await allSettled(q.start, { scope });
+    expect((scope.getState(q.$error) as ValidationError).validationErrors).toEqual([
+      'validate: not positive',
+    ]);
+
+    // both pass
+    scope = fork();
+    q = make({ n: 5 });
+    await allSettled(q.start, { scope });
+    expect(scope.getState(q.$status)).toBe('done');
+    expect(scope.getState(q.$data)).toEqual({ n: 5 });
+  });
+
   it('validation failures are retryable', async () => {
     let calls = 0;
     const fx = createEffect(async () => {

@@ -89,6 +89,19 @@ const auth = createBarrier({ perform: refreshTokenFx });
 applyBarrier(userQuery, auth);
 ```
 
+## Applying an operator more than once
+
+Two well-defined behaviors, by operator kind:
+
+- **Last-wins** — `concurrency` / `retry` / `cache` / `timeout` / `applyBarrier` are engine
+  _setters_: a second call **replaces** the first. `retry(q, 1); retry(q, 3)` ⇒ 3 retries;
+  `applyBarrier(q, null)` detaches.
+- **Additive** — `keepFresh` / `invalidate` / `update` _add wiring_ each call: registering two
+  `keepFresh` sources means **either** change refetches.
+
+This is intentional and tested (`test/multi-operators.test.ts`) — last-wins for the single-valued
+config knobs, additive for the ones that register reactions.
+
 ---
 
 All of these equal the corresponding `createQuery({ … })` option — use whichever reads better.

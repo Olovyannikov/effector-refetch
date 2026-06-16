@@ -165,6 +165,10 @@ createQuery({ effect: getPriceFx, validate: ({ result }) => result >= 0 || ['о�
 Контракты **структурные** — сами библиотеки схем не импортируются, вы передаёте свою
 схему/валидатор. При провале `$error` — это `ValidationError` с `.validationErrors`.
 
+`contract` и `validate` — **два поля, которые композируются**: если заданы оба, сначала отрабатывает
+`contract`, затем `validate`, и побеждает первый провал. Это намеренное, финальное решение — они
+остаются раздельными (проверка по схеме vs. ad-hoc предикат), а не сливаются в одно поле.
+
 ::: tip @withease/contracts — без адаптера
 
 [`@withease/contracts`](https://withease.effector.dev/contracts/) отдаёт объекты ровно той формы
