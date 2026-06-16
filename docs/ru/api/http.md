@@ -16,7 +16,8 @@ const userQuery = createQuery({ effect: getUserFx, cache: true });
 
 Хендлер получает `AbortSignal`; контроллером владеет query и срабатывает им на `cancel` /
 `reset` и при вытеснении `TAKE_LATEST` — так запрос реально прерывается. Ошибки нормализуются
-в `RequestError` (`status`, `data`).
+в `RequestError` (`status`, `data`). Возвращает `AbortableEffect` (экспортируется, если нужно
+аннотировать); передаётся в `createQuery` / `createMutation` и т.д. как обычный `Effect`.
 
 ### Error guards
 

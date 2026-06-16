@@ -16,7 +16,9 @@ const userQuery = createQuery({ effect: getUserFx, cache: true });
 
 The handler receives an `AbortSignal`; the query owns the controller and fires it on
 `cancel` / `reset` and on `TAKE_LATEST` supersede — so the request actually aborts.
-Errors are normalized to `RequestError` (`status`, `data`).
+Errors are normalized to `RequestError` (`status`, `data`). It returns an `AbortableEffect`
+(exported, if you need to annotate it); pass it to `createQuery` / `createMutation` / etc. just
+like a plain `Effect`.
 
 ### Error guards
 

@@ -87,6 +87,8 @@ export type {
   QueryInspect,
   QueryStatus,
   QueryFinished,
+  AbortableEffect,
+  QueryEffect,
   ConcurrencyStrategy,
   RetryConfig,
   CacheAdapter,
