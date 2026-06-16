@@ -16,9 +16,40 @@ const userQuery = createQuery({ effect: getUserFx, cache: true });
 
 The handler receives an `AbortSignal`; the query owns the controller and fires it on
 `cancel` / `reset` and on `TAKE_LATEST` supersede — so the request actually aborts.
-Errors are normalized to `RequestError` (`status`, `data`). Narrow them with the guards
-`isRequestError` / `isHttpError(e, status?)` / `isTimeoutError` (and `isValidationError`) — see
-the [error-handling recipe](/recipes/error-handling#type-guards).
+Errors are normalized to `RequestError` (`status`, `data`).
+
+### Error guards
+
+Narrow `$error` / `finished.fail` payloads with typed guards instead of `instanceof` + casts:
+
+```ts
+import { isRequestError, isHttpError, isTimeoutError, isValidationError } from 'effector-refetch';
+
+isHttpError(error); // a RequestError carrying a status
+isHttpError(error, 404); // exactly 404
+isHttpError(error, (s) => s >= 500); // any 5xx
+isTimeoutError(error); // aborted past its `timeout`
+isValidationError(error); // a failed contract / validate (narrows to .validationErrors)
+isRequestError(error); // any normalized transport error
+```
+
+```ts
+import { sample } from 'effector';
+
+// refresh the token on a 401
+sample({
+  clock: api.finished.fail,
+  filter: ({ error }) => isHttpError(error, 401),
+  target: authBarrier.lock,
+});
+
+// a friendly message per error kind
+const $message = api.$error.map((e) =>
+  isHttpError(e, (s) => s >= 500) ? 'Server error' : isTimeoutError(e) ? 'Timed out' : e ? 'Failed' : null,
+);
+```
+
+More in the [error-handling recipe](/recipes/error-handling#type-guards).
 
 It's just an effect, so anything works inside: multipart **FormData** uploads
 ([`examples/form-data.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/form-data.ts)),

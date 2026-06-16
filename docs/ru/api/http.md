@@ -16,9 +16,40 @@ const userQuery = createQuery({ effect: getUserFx, cache: true });
 
 Хендлер получает `AbortSignal`; контроллером владеет query и срабатывает им на `cancel` /
 `reset` и при вытеснении `TAKE_LATEST` — так запрос реально прерывается. Ошибки нормализуются
-в `RequestError` (`status`, `data`). Сужайте их guard'ами `isRequestError` /
-`isHttpError(e, status?)` / `isTimeoutError` (и `isValidationError`) — см.
-[рецепт обработки ошибок](/ru/recipes/error-handling#type-guards).
+в `RequestError` (`status`, `data`).
+
+### Error guards
+
+Сужайте payload `$error` / `finished.fail` типизированными guard'ами вместо `instanceof` + кастов:
+
+```ts
+import { isRequestError, isHttpError, isTimeoutError, isValidationError } from 'effector-refetch';
+
+isHttpError(error); // RequestError со status
+isHttpError(error, 404); // ровно 404
+isHttpError(error, (s) => s >= 500); // любой 5xx
+isTimeoutError(error); // прерван по `timeout`
+isValidationError(error); // провал контракта / validate (сужает к .validationErrors)
+isRequestError(error); // любая нормализованная транспортная ошибка
+```
+
+```ts
+import { sample } from 'effector';
+
+// обновить токен на 401
+sample({
+  clock: api.finished.fail,
+  filter: ({ error }) => isHttpError(error, 401),
+  target: authBarrier.lock,
+});
+
+// понятное сообщение под каждый тип ошибки
+const $message = api.$error.map((e) =>
+  isHttpError(e, (s) => s >= 500) ? 'Ошибка сервера' : isTimeoutError(e) ? 'Таймаут' : e ? 'Сбой' : null,
+);
+```
+
+Подробнее — в [рецепте обработки ошибок](/ru/recipes/error-handling#type-guards).
 
 Это просто эффект — внутри работает что угодно: multipart **FormData**-загрузки
 ([`examples/form-data.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/form-data.ts)),
