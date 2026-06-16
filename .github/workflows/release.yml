@@ -16,6 +16,10 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Disable the lefthook git hooks in CI: the changesets action makes a
+    # "Version Packages" commit, which must not be gated by commitlint / pre-commit.
+    env:
+      LEFTHOOK: '0'
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
