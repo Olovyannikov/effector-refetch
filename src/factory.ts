@@ -67,7 +67,12 @@ export function createQueryFactory(defaults: QueryFactoryDefaults = {}): QueryFa
       | CreateQueryConfig<Params, Result, Error, Mapped>
       | CreateQueryHandlerConfig<Params, Result, Error, Mapped>,
   ): Query<Params, Result, Error, Mapped> {
-    const query = createQuery({ ...defaults, ...config } as never) as Query<Params, Result, Error, Mapped>;
+    // branch so each call hits the matching createQuery overload with full type
+    // checking (a factory config is structurally a subset of a query config)
+    const query =
+      'effect' in config
+        ? createQuery<Params, Result, Error, Mapped>({ ...defaults, ...config })
+        : createQuery<Params, Result, Error, Mapped>({ ...defaults, ...config });
     registry.push(query);
     // group invalidation: refetch (with last params) if it has run and matches the predicate
     sample({
@@ -86,7 +91,9 @@ export function createQueryFactory(defaults: QueryFactoryDefaults = {}): QueryFa
       | CreateMutationConfig<Params, Result, Error, Mapped>
       | CreateMutationHandlerConfig<Params, Result, Error, Mapped>,
   ): Mutation<Params, Result, Error, Mapped> {
-    return createMutation({ ...mutationDefaults, ...config } as never);
+    return 'effect' in config
+      ? createMutation<Params, Result, Error, Mapped>({ ...mutationDefaults, ...config })
+      : createMutation<Params, Result, Error, Mapped>({ ...mutationDefaults, ...config });
   }
 
   return {
