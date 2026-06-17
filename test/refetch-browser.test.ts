@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, afterEach } from 'vitest';
-import { createEffect } from 'effector';
+import { allSettled, createEffect, fork } from 'effector';
 import { createQuery, refetchOnReconnect, refetchOnWindowFocus } from '../src';
 
 describe('refetchOnWindowFocus / refetchOnReconnect (no-scope)', () => {
@@ -48,6 +48,29 @@ describe('refetchOnWindowFocus / refetchOnReconnect (no-scope)', () => {
     window.dispatchEvent(new Event('online'));
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toBe(2);
+  });
+
+  it('fires the refetch into the provided scope (fork-correct)', async () => {
+    let calls = 0;
+    const fx = createEffect(async (id: number) => {
+      calls++;
+      return id;
+    });
+    const query = createQuery({ effect: fx });
+    const scope = fork();
+    teardowns.push(refetchOnWindowFocus(query, scope));
+
+    // run the query in the scope (never globally)
+    await allSettled(query.start, { scope, params: 7 });
+    expect(calls).toBe(1);
+    expect(scope.getState(query.$params)).toBe(7);
+
+    // focus fires the trigger into the scope -> refetch with the scoped last params
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(2);
+    expect(scope.getState(query.$status)).toBe('done');
+    expect(query.$status.getState()).toBe('initial'); // global store untouched
   });
 
   it('unsubscribe stops listening', async () => {
