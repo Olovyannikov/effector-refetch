@@ -35,6 +35,8 @@ interface BaseInfiniteConfig<Params, PageParam, Page> {
   maxPages?: number;
   concurrency?: ConcurrencyStrategy;
   name?: string;
+  /** Label the public/internal units for the inspector even without a `name`. */
+  debug?: boolean;
 }
 
 export interface CreateInfiniteQueryConfig<Params, PageParam, Page> extends BaseInfiniteConfig<
@@ -122,6 +124,13 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
 ): InfiniteQuery<Params, PageParam, Page, Error> {
   const { initialPageParam, getNextPageParam, getPreviousPageParam, maxPages } = config;
 
+  // devtools labelling: name the public units when a `name` (or `debug`) is given.
+  // The inner page query is prefixed `<name>.page` so its units (start/runFx/$data/…)
+  // don't collide with this query's own `<name>.start` etc.
+  const ns = config.name ?? (config.debug ? 'infinite' : undefined);
+  const nm = (suffix: string) => (ns ? { name: `${ns}.${suffix}` } : undefined);
+  const evName = (suffix: string): string | undefined => (ns ? `${ns}.${suffix}` : undefined);
+
   const call = (req: PageReq<Params, PageParam>): Promise<Page> =>
     'effect' in config
       ? (config.effect as (a: { params: Params; pageParam: PageParam }) => Promise<Page>)({
@@ -130,21 +139,25 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
         })
       : Promise.resolve(config.handler({ params: req.params, pageParam: req.pageParam }));
 
-  const pageFx = createEffect<PageReq<Params, PageParam>, Page, Error>((req) => call(req) as Promise<Page>);
+  const pageFx = createEffect<PageReq<Params, PageParam>, Page, Error>({
+    name: evName('pageFx'),
+    handler: (req) => call(req) as Promise<Page>,
+  });
   const pageQuery = createQuery<PageReq<Params, PageParam>, Page, Error>({
     effect: pageFx,
     concurrency: config.concurrency ?? 'TAKE_LATEST',
-    name: config.name,
+    name: config.name ? `${config.name}.page` : undefined,
+    debug: config.debug,
   });
 
-  const start = createEvent<Params>();
-  const fetchNext = createEvent<void>();
-  const fetchPrevious = createEvent<void>();
-  const reset = createEvent<void>();
+  const start = createEvent<Params>(evName('start'));
+  const fetchNext = createEvent<void>(evName('fetchNext'));
+  const fetchPrevious = createEvent<void>(evName('fetchPrevious'));
+  const reset = createEvent<void>(evName('reset'));
   // write seam for update()/optimisticUpdate(): patch the accumulated pages
-  const setData = createEvent<Page[] | null>();
+  const setData = createEvent<Page[] | null>(evName('setData'));
 
-  const $params = createStore<Params | null>(null)
+  const $params = createStore<Params | null>(null, nm('$params'))
     .on(start, (_p, params) => params)
     .reset(reset);
 
@@ -156,7 +169,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     previousPageParam: null,
     hasPreviousPage: false,
   };
-  const $infinite = createStore<InfiniteState<PageParam, Page>>(initial)
+  const $infinite = createStore<InfiniteState<PageParam, Page>>(initial, nm('$infinite'))
     .on(pageQuery.finished.done, (state, { params: req, result: page }) => {
       let pages: Page[];
       let pageParams: PageParam[];
@@ -246,8 +259,8 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     target: pageQuery.start,
   });
 
-  const finishedDone = createEvent<{ params: Params; page: Page }>();
-  const finishedFail = createEvent<{ params: Params; error: Error }>();
+  const finishedDone = createEvent<{ params: Params; page: Page }>(evName('finished.done'));
+  const finishedFail = createEvent<{ params: Params; error: Error }>(evName('finished.fail'));
   sample({
     clock: pageQuery.finished.done,
     fn: ({ params: req, result: page }) => ({ params: req.params, page }),
