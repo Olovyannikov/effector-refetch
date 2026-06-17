@@ -28,6 +28,9 @@ import { makeTrigger } from './trigger';
 import { setupPolling } from './engine/polling';
 import { setupIntrospection } from './engine/introspection';
 
+/** A never-aborted signal for non-abortable effects (avoids allocating a throwaway AbortController per run). */
+const NEVER_ABORTED = new AbortController().signal;
+
 interface Run<P> {
   runId: number;
   params: P;
@@ -178,7 +181,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       if (controller) controllers.add(controller);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const exec = callEffect(params, controller?.signal ?? new AbortController().signal);
+        const exec = callEffect(params, controller?.signal ?? NEVER_ABORTED);
         if (!timeoutMs || timeoutMs <= 0) {
           return { runId, params, timeoutMs, result: await exec };
         }
@@ -321,7 +324,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     name: evName('prefetchRunFx'),
     handler: async (params) => ({
       params,
-      result: await callEffect(params, new AbortController().signal),
+      result: await callEffect(params, NEVER_ABORTED),
     }),
   });
   sample({
@@ -378,8 +381,10 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
   sample({ clock: tagged, target: runFx });
 
-  $params.on(tagged, (_p, t) => t.params ?? null);
-  $params.on(cacheHit, (_p, h) => h.params ?? null);
+  $params
+    .on(tagged, (_p, t) => t.params ?? null)
+    .on(cacheHit, (_p, h) => h.params ?? null)
+    .on(staleServe, (_p, h) => h.params ?? null);
 
   // ---- result acceptance (concurrency) ----
   sample({
@@ -564,7 +569,6 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     .on(cacheHit, () => false)
     .on(staleServe, () => false)
     .reset(reset);
-  $params.on(staleServe, (_p, h) => h.params ?? null);
 
   // Track the *current* run explicitly: a cancel/reset clears it immediately,
   // even if a non-abortable effect's promise is still resolving in the background.
@@ -673,6 +677,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         cacheMiss: inspectCacheMiss,
         retry: inspectRetry,
       },
+      // INVARIANT: these setters mutate per-instance closure config (strategyConst /
+      // retryRef / cacheRef / validateRef / timeoutConst / barrierRef) read inside pure
+      // sample filter/fn stages. They are fork-safe ONLY because config is global and set
+      // once (by the standalone operators / inline sugar) BEFORE any fork. Genuinely
+      // per-scope/reactive config must go through the $...Src stores instead — do NOT wire
+      // these constants to scoped/reactive state, or fork-correctness breaks silently.
       setStrategy: (s) => {
         strategyConst = s;
       },
