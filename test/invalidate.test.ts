@@ -122,4 +122,20 @@ describe('invalidate', () => {
     await allSettled(m2.start, { scope });
     expect([aFetch, bFetch]).toEqual([3, 3]);
   });
+
+  it('is a no-op with an empty `on` array (no dead wiring)', async () => {
+    let fetches = 0;
+    const fx = createEffect(async () => {
+      fetches++;
+      return fetches;
+    });
+    const query = createQuery({ effect: fx });
+
+    // empty trigger list: nothing should be wired, and it must not throw
+    expect(() => invalidate({ on: [], refetch: query })).not.toThrow();
+
+    const scope = fork();
+    await allSettled(query.start, { scope });
+    expect(fetches).toBe(1); // still just the initial run
+  });
 });

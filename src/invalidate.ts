@@ -34,6 +34,7 @@ export interface InvalidateConfig {
 export function invalidate(config: InvalidateConfig): void {
   const triggers = (Array.isArray(config.on) ? config.on : [config.on]).map(toEvent);
   const queries = Array.isArray(config.refetch) ? config.refetch : [config.refetch];
+  if (triggers.length === 0 || queries.length === 0) return; // nothing to wire (parity with keepFresh)
   const clock = triggers.length === 1 ? triggers[0] : merge(triggers);
   const { filter } = config;
 
