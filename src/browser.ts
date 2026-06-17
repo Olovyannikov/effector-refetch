@@ -1,4 +1,4 @@
-import type { Store } from 'effector';
+import { createEvent, sample, type Store } from 'effector';
 import { createBarrier, type Barrier } from './barrier';
 import type { Query } from './types';
 
@@ -12,26 +12,36 @@ function onWindow(event: string, handler: () => void): () => void {
   return () => window.removeEventListener(event, handler);
 }
 
-function refetchIfActive(query: AnyQuery) {
-  const params = query.$params.getState();
-  if (params !== null && query.$enabled.getState()) query.refetch(params as never);
+/**
+ * Refetch the query (with its last params) on a window event, if it has run and is
+ * enabled. The DOM listener fires a plain event; params/enabled are read declaratively
+ * through `sample` `source` (no `getState`) — so the read happens fork-correctly in
+ * whatever scope the trigger propagates in. Fired raw it targets the no-scope store
+ * (ideal for a single-client app); for scoped apps, drive `query.refetch` yourself.
+ */
+function refetchOnWindowEvent(query: AnyQuery, event: string): () => void {
+  const fired = createEvent();
+  sample({
+    clock: fired,
+    source: { params: query.$params, enabled: query.$enabled },
+    filter: ({ enabled, params }) => enabled && params !== null,
+    fn: ({ params }) => params as never,
+    target: query.refetch,
+  });
+  return onWindow(event, () => fired());
 }
 
 /**
  * Refetch the query when the window regains focus (browser only). The query must
  * have run at least once and be enabled. Returns an unsubscribe function.
- *
- * Reads the last params via `getState`, so it targets the no-scope store — ideal
- * for a single-client app. For scoped apps, drive `query.refetch` yourself with
- * `scopeBind`.
  */
 export function refetchOnWindowFocus(query: AnyQuery): () => void {
-  return onWindow('focus', () => refetchIfActive(query));
+  return refetchOnWindowEvent(query, 'focus');
 }
 
 /** Refetch the query when the network comes back online (browser only). */
 export function refetchOnReconnect(query: AnyQuery): () => void {
-  return onWindow('online', () => refetchIfActive(query));
+  return refetchOnWindowEvent(query, 'online');
 }
 
 export interface NetworkBarrier extends Barrier {
