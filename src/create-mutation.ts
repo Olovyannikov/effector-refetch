@@ -19,10 +19,21 @@ export function createMutation<Params, Result, Error = unknown, Mapped = Result>
     | CreateMutationConfig<Params, Result, Error, Mapped>
     | CreateMutationHandlerConfig<Params, Result, Error, Mapped>,
 ): Mutation<Params, Result, Error, Mapped> {
-  const query = createQuery<Params, Result, Error, Mapped>({
-    ...(config as object),
-    concurrency: config.concurrency ?? 'TAKE_EVERY',
-  } as never);
+  // A mutation config is structurally a subset of a query config (no cache /
+  // contract / stale / etc.), so each branch is assignable to the matching
+  // createQuery overload — narrowing on `'effect' in config` keeps full type
+  // checking instead of an `as never` escape hatch.
+  // TAKE_EVERY by default so independent writes don't cancel each other.
+  const query =
+    'effect' in config
+      ? createQuery<Params, Result, Error, Mapped>({
+          ...config,
+          concurrency: config.concurrency ?? 'TAKE_EVERY',
+        })
+      : createQuery<Params, Result, Error, Mapped>({
+          ...config,
+          concurrency: config.concurrency ?? 'TAKE_EVERY',
+        });
 
   const mutate = query.start;
 
