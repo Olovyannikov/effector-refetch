@@ -263,9 +263,13 @@ export interface CreateMutationConfig<Params, Result, Error, Mapped = Result> {
   enabled?: Store<boolean>;
   mapData?: (ctx: { result: Result; params: Params }) => Mapped;
   mapError?: (ctx: { error: Error; params: Params }) => Error;
+  /** Validate the response against a schema; failure -> ValidationError. */
+  contract?: Contract<Result>;
+  /** Custom validation: return true/void = ok, false or string[] = invalid. */
+  validate?: (ctx: { result: Result; params: Params }) => boolean | string[] | void;
   retry?: number | RetryConfig<Error>;
-  /** Default: 'TAKE_EVERY' — independent mutations should not cancel each other. */
-  concurrency?: ConcurrencyStrategy;
+  /** Default: 'TAKE_EVERY' — independent mutations should not cancel each other. Inline accepts a reactive `Store<ConcurrencyStrategy>`. */
+  concurrency?: ConcurrencyStrategy | Store<ConcurrencyStrategy>;
   /** Gate execution on a barrier (e.g. token refresh). */
   barrier?: Barrier;
   name?: string;

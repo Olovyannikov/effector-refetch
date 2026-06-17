@@ -252,5 +252,5 @@ export function createJsonMutation<Params = void, Response = unknown>(
     concurrency: config.concurrency,
     retry: config.retry,
     name: config.name,
-  } as never);
+  });
 }
