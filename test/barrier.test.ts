@@ -150,4 +150,30 @@ describe('createBarrier', () => {
     expect(api.$data.getState()).toBe('data');
     expect(api.$status.getState()).toBe('done');
   });
+
+  it('drops a run superseded during the barrier wait without hitting the effect', async () => {
+    const seen: number[] = [];
+    const fx = createEffect(async (p: number) => {
+      seen.push(p); // non-abortable: would still run if not dropped pre-network
+      return p;
+    });
+    const barrier = createBarrier();
+    const query = createQuery({ effect: fx, barrier }); // TAKE_LATEST by default
+
+    barrier.lock();
+    query.start(1); // waits at the barrier
+    await tick();
+    query.start(2); // supersedes #1 while it's still waiting
+    await tick();
+    expect(seen).toEqual([]); // barrier locked -> nothing ran yet
+
+    barrier.unlock();
+    await tick();
+    await tick();
+
+    // only the current run (#2) reaches the effect; the superseded #1 is dropped
+    // by the post-barrier currency re-gate, so it never performs its request
+    expect(seen).toEqual([2]);
+    expect(query.$data.getState()).toBe(2);
+  });
 });

@@ -173,8 +173,6 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const runFx = createEffect<Run<Params>, ExecDone<Params, Result>, Error>({
     name: ns ? `${ns}.runFx` : undefined,
     handler: async ({ runId, params, timeoutMs }) => {
-      // wait while the environment is paused (e.g. during a token refresh)
-      if (barrierRef) await barrierRef.__.wait();
       const key = dedupeKey(params);
       if (key) inflightKeys.add(key);
       const controller = isAbortable ? new AbortController() : null;
@@ -203,6 +201,42 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     },
   });
 
+  // ---- barrier gate ----
+  // A run waits on the barrier (e.g. a token refresh) BEFORE hitting the effect. The
+  // wait lives in its own effect — not inside runFx — so that when the barrier opens we
+  // re-check currency in the graph (fork-correct $runId) and drop a superseded/cancelled
+  // run WITHOUT performing its request. Runs with no barrier attached skip this hop.
+  const toRunFx = createEvent<Run<Params>>(evName('toRunFx'));
+  const barrierWaitFx = createEffect<Run<Params>, Run<Params>>({
+    name: evName('barrierWaitFx'),
+    handler: async (run) => {
+      if (barrierRef) await barrierRef.__.wait();
+      return run;
+    },
+  });
+  // no barrier attached -> straight to the effect
+  sample({ clock: toRunFx, filter: () => !barrierRef, target: runFx });
+  // barrier attached -> wait for it to open
+  sample({ clock: toRunFx, filter: () => !!barrierRef, target: barrierWaitFx });
+  // barrier opened: only the still-current run proceeds; a superseded/cancelled one is
+  // dropped here, so it never reaches the network
+  sample({
+    clock: barrierWaitFx.doneData,
+    source: { lastId: $runId, strat: $strategySrc },
+    filter: ({ lastId, strat }, run) => isCurrent(stratOf(strat), lastId, run.runId),
+    fn: (_s, run) => run,
+    target: runFx,
+  });
+  sample({
+    clock: barrierWaitFx.doneData,
+    source: { lastId: $runId, strat: $strategySrc },
+    filter: ({ lastId, strat }, run) => !isCurrent(stratOf(strat), lastId, run.runId),
+    fn: (_s, run) => ({ params: run.params }),
+    target: aborted,
+  });
+  // "in progress" for TAKE_FIRST means waiting on the barrier OR executing the effect
+  const $busy = combine(barrierWaitFx.pending, runFx.pending, (w, r) => w || r);
+
   const requested = createEvent<{ params: Params; fresh: boolean }>(evName('requested'));
   sample({ clock: start, fn: (params) => ({ params, fresh: false }), target: requested });
   sample({ clock: refresh, fn: (params) => ({ params, fresh: true }), target: requested });
@@ -226,14 +260,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const proceed = createEvent<{ params: Params; fresh: boolean }>(evName('proceed'));
   sample({
     clock: allowed,
-    source: { busy: runFx.pending, strat: $strategySrc },
+    source: { busy: $busy, strat: $strategySrc },
     filter: ({ busy, strat }) => !(stratOf(strat) === 'TAKE_FIRST' && busy),
     fn: (_s, r) => r,
     target: proceed,
   });
   sample({
     clock: allowed,
-    source: { busy: runFx.pending, strat: $strategySrc },
+    source: { busy: $busy, strat: $strategySrc },
     filter: ({ busy, strat }) => stratOf(strat) === 'TAKE_FIRST' && busy,
     fn: (_s, r) => ({ params: r.params }),
     target: aborted,
@@ -379,7 +413,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     filter: (s) => stratOf(s) === 'TAKE_LATEST',
     target: abortInFlightFx,
   });
-  sample({ clock: tagged, target: runFx });
+  sample({ clock: tagged, target: toRunFx });
 
   $params
     .on(tagged, (_p, t) => t.params ?? null)
@@ -503,7 +537,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     source: { lastId: $runId, strat: $strategySrc },
     filter: ({ lastId, strat }, payload) => isCurrent(stratOf(strat), lastId, (payload as Run<Params>).runId),
     fn: (_s, payload) => payload as Run<Params>,
-    target: runFx,
+    target: toRunFx,
   });
   $retrying.reset(sleepFx.done);
 
