@@ -135,6 +135,69 @@ describe('optimisticUpdate', () => {
     expect(scope.getState(todos.$data)).toEqual(['a', 'x']);
   });
 
+  it('rolls back on cancel while in flight', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const { mutation, ctl } = deferredMutation();
+
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+
+    const p = allSettled(mutation.mutate, { scope, params: 'optimistic' });
+    expect(scope.getState(todos.$data)).toEqual(['a', 'optimistic']);
+
+    const c = allSettled(mutation.cancel, { scope });
+    // let the dropped run resolve late — it's no longer current, so it must not re-apply
+    ctl[0].res('late');
+    await Promise.all([p, c]);
+    expect(scope.getState(todos.$data)).toEqual(['a']);
+  });
+
+  it('rolls back on reset while in flight', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const { mutation, ctl } = deferredMutation();
+
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+    const p = allSettled(mutation.mutate, { scope, params: 'x' });
+    expect(scope.getState(todos.$data)).toEqual(['a', 'x']);
+
+    const r = allSettled(mutation.reset, { scope });
+    ctl[0].res('late');
+    await Promise.all([p, r]);
+    expect(scope.getState(todos.$data)).toEqual(['a']);
+  });
+
+  it('does not wipe data when cancel/reset fires with no update in flight', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const { mutation } = deferredMutation();
+
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+    // cancel/reset before any mutation start: $active is false, the stale (null)
+    // rollback snapshot must not clobber the query data
+    await allSettled(mutation.cancel, { scope });
+    await allSettled(mutation.reset, { scope });
+    expect(scope.getState(todos.$data)).toEqual(['a']);
+  });
+
   it('reconciles with the server result via commit on success', async () => {
     const todos = createQuery({ effect: createEffect(async () => ['a']) });
     const { mutation, ctl } = deferredMutation();

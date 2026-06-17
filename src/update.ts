@@ -69,14 +69,17 @@ export interface OptimisticUpdateConfig<QM, P, R> {
   update: (ctx: { data: QM | null; params: P }) => QM;
   /** Reconcile with the server result on success (defaults to keeping the optimistic value). */
   commit?: (ctx: { data: QM | null; result: R; params: P }) => QM;
-  /** Roll back to the pre-mutation value on failure. Default: true. */
+  /**
+   * Roll back to the pre-mutation value when the optimistic write isn't committed —
+   * on failure, and on `cancel` / `reset` while the update is still in flight. Default: true.
+   */
   rollbackOnFailure?: boolean;
 }
 
 /**
  * Optimistic update: patch the data immediately on mutation start, roll back on
- * failure, and optionally reconcile with the server result on success. Works on
- * regular and infinite queries.
+ * failure (and on `cancel` / `reset` while in flight), and optionally reconcile
+ * with the server result on success. Works on regular and infinite queries.
  *
  * Assumes effectively-serial mutations per query (the common case); heavily
  * interleaved concurrent mutations on the same query can clobber each other's
@@ -97,7 +100,20 @@ export function optimisticUpdate<QM, P, R>(config: OptimisticUpdateConfig<QM, P,
   });
 
   if (rollbackOnFailure) {
+    // track whether an optimistic write is currently in flight, so cancel/reset
+    // before a start (or after a settle) can't wipe data with a stale snapshot
+    const $active = createStore(false)
+      .on(on.start, () => true)
+      .on([on.finished.done, on.finished.fail], () => false);
+
     sample({ clock: on.finished.fail, source: $rollback, target: setData });
+    sample({
+      clock: [on.cancel, on.reset],
+      source: { active: $active, rb: $rollback },
+      filter: ({ active }) => active,
+      fn: ({ rb }) => rb,
+      target: setData,
+    });
   }
 
   if (commit) {
