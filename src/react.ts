@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { useUnit } from 'effector-react';
+import { createWatch } from 'effector';
+import { useUnit, useProvidedScope } from 'effector-react';
 import type { Query, QueryStatus, UseQueryOptions } from './types';
 
 export type { UseQueryOptions };
@@ -74,9 +75,20 @@ export function useQuery<Params, Result, Error, Mapped>(
   };
 }
 
-// Per-query promise cache: while a query is loading we throw a *stable* promise
-// (React keys Suspense retries on identity) that resolves on the next settle.
-const suspenseCache = new WeakMap<object, Promise<void>>();
+// Per-(scope, query) promise cache: while a query is loading we throw a *stable*
+// promise (React keys Suspense retries on identity) that resolves on the next settle.
+// Keyed by scope so concurrent forks don't share each other's settle signal; the
+// inner map is a WeakMap so a query GC's with its scope.
+const NO_SCOPE = {};
+const suspenseByScope = new WeakMap<object, WeakMap<object, Promise<void>>>();
+function suspenseCacheFor(scope: object): WeakMap<object, Promise<void>> {
+  let cache = suspenseByScope.get(scope);
+  if (!cache) {
+    cache = new WeakMap();
+    suspenseByScope.set(scope, cache);
+  }
+  return cache;
+}
 
 /**
  * Suspense binding for a Query. Returns the data directly (never null):
@@ -94,6 +106,8 @@ export function useSuspenseQuery<Params, Result, Error, Mapped>(
   query: Query<Params, Result, Error, Mapped>,
   ...args: [Params] extends [void] ? [] : [Params]
 ): Mapped {
+  const scope = useProvidedScope();
+  const cache = suspenseCacheFor(scope ?? NO_SCOPE);
   const { data, status, error } = useUnit({
     data: query.$data,
     status: query.$status,
@@ -102,24 +116,29 @@ export function useSuspenseQuery<Params, Result, Error, Mapped>(
   const start = useUnit(query.start) as (...a: unknown[]) => void;
 
   if (status === 'done') {
-    suspenseCache.delete(query as object);
+    cache.delete(query as object);
     return data as Mapped;
   }
   if (status === 'fail') {
-    suspenseCache.delete(query as object);
+    cache.delete(query as object);
     throw error;
   }
 
-  // initial / pending → suspend until the query settles
-  let promise = suspenseCache.get(query as object);
+  // initial / pending → suspend until the query settles. The settle signal is
+  // observed scope-correctly via createWatch (no scope -> default, same as before).
+  let promise = cache.get(query as object);
   if (!promise) {
     promise = new Promise<void>((resolve) => {
-      const unwatch = (query as unknown as AnyQuery).finished.finally.watch(() => {
-        unwatch();
-        resolve();
+      const unwatch = createWatch({
+        unit: (query as unknown as AnyQuery).finished.finally,
+        scope: scope ?? undefined,
+        fn: () => {
+          unwatch();
+          resolve();
+        },
       });
     });
-    suspenseCache.set(query as object, promise);
+    cache.set(query as object, promise);
     if (status === 'initial') start(...args);
   }
   throw promise;
