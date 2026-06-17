@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allSettled, createEffect, fork } from 'effector';
+import { allSettled, createEffect, createEvent, createStore, fork } from 'effector';
 import { createQuery } from '../src';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -24,6 +24,38 @@ describe('refetchInterval (polling)', () => {
     const after = calls;
     await wait(80);
     expect(calls).toBe(after); // no further polls
+  });
+
+  it('pauses while disabled and resumes when re-enabled', async () => {
+    let calls = 0;
+    const fx = createEffect(async () => {
+      calls++;
+      return 1;
+    });
+    const setEnabled = createEvent<boolean>();
+    const $enabled = createStore(true).on(setEnabled, (_s, v) => v);
+    const query = createQuery({ effect: fx, refetchInterval: 30, enabled: $enabled });
+
+    const scope = fork();
+    const started = allSettled(query.start, { scope });
+    await wait(100);
+    expect(calls).toBeGreaterThanOrEqual(2);
+
+    // disable -> polling pauses
+    await allSettled(setEnabled, { scope, params: false });
+    await wait(80);
+    const paused = calls;
+    await wait(80);
+    expect(calls).toBe(paused); // no polls while disabled
+
+    // re-enable -> polling resumes without a fresh start.
+    // Don't await: like start, a resumed polling loop never settles until reset.
+    const resumed = allSettled(setEnabled, { scope, params: true });
+    await wait(100);
+    expect(calls).toBeGreaterThan(paused);
+
+    await allSettled(query.reset, { scope });
+    await Promise.all([started, resumed]);
   });
 
   it('does not poll when interval is 0 (default)', async () => {

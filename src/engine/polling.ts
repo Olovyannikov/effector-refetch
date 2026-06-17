@@ -5,7 +5,8 @@ import type { QueryStatus } from '../types';
  * Polling subsystem (`refetchInterval`). After each settle, if the interval is
  * positive and the query is enabled + started, wait then refresh with the last
  * params. A token (`$pollId`) keeps a single live timer (no doubling) and lets
- * `reset` stop it.
+ * `reset` stop it. Disabling pauses polling; re-enabling (`enabled` false -> true)
+ * resumes it without needing a fresh `start`.
  *
  * Pure leaf wiring: it observes `finished.*` and drives `refresh`/`reset` — it
  * never feeds back into the core request graph, so it lives outside the engine.
@@ -36,8 +37,13 @@ export function setupPolling<Params>(ctx: PollingContext<Params>): void {
     handler: ({ ms, payload }) => new Promise((res) => setTimeout(() => res(payload), ms)),
   });
 
+  // re-enabling (false -> true) resumes polling without waiting for a fresh start/settle.
+  // If a request is in flight when this fires, its own finish reschedules and the token
+  // ($pollId) supersedes this timer, so there's no doubling.
+  const enabledTurnedOn = sample({ clock: $enabled, filter: (en) => en });
+
   const pollScheduled = sample({
-    clock: [finishedDone, finishedFail],
+    clock: [finishedDone, finishedFail, enabledTurnedOn],
     source: { id: $pollId, ms: $intervalMs, en: $enabled, params: $params, status: $status },
     filter: ({ ms, en, status }) => ms > 0 && en && status !== 'initial',
     fn: ({ id, ms, params }) => ({ id: id + 1, ms, params }),
