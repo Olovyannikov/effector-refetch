@@ -21,8 +21,11 @@ export function concurrency<Q extends AnyQuery>(query: Q, opts: { strategy: Conc
 
 /**
  * Add retry behavior. `retry(query, 3)` or `retry(query, { times, delay, filter })`.
- * (A `Store<number>` for `times` is resolved to its current value at setup — sourced
- * retry is not reactive yet.)
+ *
+ * A `Store<number>` for `times` is accepted but **snapshotted** at setup (reads the
+ * store's *default-scope* value via `getState`); it is not reactive and not
+ * fork/SSR-correct. For per-scope reactive retry use the inline `createQuery({ retry })`
+ * option, which wires the store through the engine's sourced layer at creation.
  */
 export function retry<Q extends AnyQuery>(query: Q, opts: number | RetryConfig<any>): Q {
   const cfg = typeof opts === 'number' ? { times: opts } : opts;
@@ -40,6 +43,11 @@ export function retry<Q extends AnyQuery>(query: Q, opts: number | RetryConfig<a
 
 /**
  * Add caching. `cache(query)` (in-memory) or `cache(query, { adapter, staleAfter, key, purge })`.
+ *
+ * A `Store<number>` for `staleAfter` is accepted but **snapshotted** at setup (reads the
+ * store's *default-scope* value via `getState`); it is not reactive and not fork/SSR-correct.
+ * For per-scope reactive `staleAfter` use the inline `createQuery({ cache: { staleAfter } })`
+ * option, which wires the store through the engine's sourced layer at creation.
  */
 export function cache<Q extends AnyQuery>(query: Q, opts: boolean | CacheConfig<any> = true): Q {
   if (opts === false) {
@@ -66,8 +74,11 @@ export function cache<Q extends AnyQuery>(query: Q, opts: boolean | CacheConfig<
  * Set a per-attempt deadline (ms): the in-flight request is aborted and the run
  * fails (retryable) if it exceeds `ms`. `timeout(query, 5000)`. `0` disables it.
  *
- * `createQuery({ timeout })` is sugar over this; a `Store<number>` (reactive,
- * fork-correct) is only available through the inline option.
+ * `createQuery({ timeout })` is sugar over this. A `Store<number>` is accepted here but
+ * **snapshotted** at setup (reads the store's *default-scope* value via `getState`); it is
+ * not reactive and not fork/SSR-correct. For per-scope reactive timeout use the inline
+ * `createQuery({ timeout })` option, which wires the store through the engine's sourced
+ * layer at creation.
  */
 export function timeout<Q extends AnyQuery>(query: Q, ms: number | Store<number>): Q {
   query.__.setTimeout(is.store(ms) ? ms.getState() : ms);
