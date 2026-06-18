@@ -464,20 +464,26 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   );
 
   // validation gate: a current-run success must pass the contract / validate fn,
-  // otherwise it becomes a (retryable) ValidationError failure.
-  sample({
+  // otherwise it becomes a (retryable) ValidationError failure. Run the check ONCE
+  // per result and carry its messages (null = ok), so the contract/schema isn't
+  // re-evaluated across the two branches (and the error-message build).
+  const checked = sample({
     clock: rawDone,
-    filter: ({ params, result }) => !validateRef || validateRef(result, params) === null,
+    fn: (r) => ({ ...r, errors: validateRef ? validateRef(r.result, r.params) : null }),
+  });
+  sample({
+    clock: checked,
+    filter: ({ errors }) => errors === null,
     fn: ({ params, result }) => ({ params, result }),
     target: acceptedDone,
   });
   sample({
-    clock: rawDone,
-    filter: ({ params, result }) => !!validateRef && validateRef(result, params) !== null,
-    fn: ({ runId, params, result, timeoutMs }) => ({
+    clock: checked,
+    filter: ({ errors }) => errors !== null,
+    fn: ({ runId, params, result, timeoutMs, errors }) => ({
       runId,
       params,
-      error: new ValidationError(validateRef!(result, params) ?? [], result) as unknown as Error,
+      error: new ValidationError(errors ?? [], result) as unknown as Error,
       timeoutMs,
     }),
     target: failed,

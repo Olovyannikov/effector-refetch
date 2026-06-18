@@ -206,4 +206,32 @@ describe('validation', () => {
     expect(scope.getState(q.$status)).toBe('done');
     expect(scope.getState(q.$data)).toBe(2);
   });
+
+  it('evaluates the contract once per result (no re-parsing across branches)', async () => {
+    let isDataCalls = 0;
+    let messageCalls = 0;
+    const contract = createContract<{ id: number }>({
+      isData: (raw) => {
+        isDataCalls++;
+        return typeof (raw as any)?.id === 'number';
+      },
+      getErrorMessages: () => {
+        messageCalls++;
+        return ['bad'];
+      },
+    });
+
+    // valid response -> isData once, messages never
+    const ok = createQuery({ effect: createEffect(async () => ({ id: 1 })), contract });
+    await allSettled(ok.start, { scope: fork() });
+    expect(isDataCalls).toBe(1);
+    expect(messageCalls).toBe(0);
+
+    // invalid response -> isData once, messages once (not 3x isData)
+    isDataCalls = 0;
+    const bad = createQuery({ effect: createEffect(async () => ({ id: 'x' }) as any), contract });
+    await allSettled(bad.start, { scope: fork() });
+    expect(isDataCalls).toBe(1);
+    expect(messageCalls).toBe(1);
+  });
 });
