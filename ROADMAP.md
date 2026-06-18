@@ -91,6 +91,28 @@ This is not "clone farfetched". It is: keep the friendly, effect-first core, the
 - [x] CI: typecheck / tests / build / size-limit (`ci.yml`); release automation via changesets (`release.yml` + `.changeset/`)
 - [x] Normalized list updates from mutations — `update`/`optimisticUpdate` recipe + spec (`docs/recipes/list-updates`)
 
+### 1.0 — hardening pass (2026-06)
+
+An effector-correctness / perf / type-safety sweep across the engine and bindings — no
+API additions, strengthens the 1.0 case. Each item shipped with tests (suite 189 → 199).
+
+- **Scope / fork-correctness**
+  - [x] `useSuspenseQuery` observes the settle via scope-aware `createWatch` (was a no-scope `.watch`) + per-`(scope, query)` promise cache; CSR behaviour unchanged.
+  - [x] `refetchOnWindowFocus` / `refetchOnReconnect` — dropped `getState` (now a `sample`); optional `scope` runs the refetch via `allSettled` (fork-correct; `scopeBind` loses the fork context across the run chain, `allSettled` holds it).
+  - [x] `setQueryData`'s `(prev) => next` form applies in the `$data` reducer via a new `__.updateData` seam — no `getState`, scope-correct.
+- **Behaviour fixes**
+  - [x] `optimisticUpdate` rolls back on `cancel` / `reset` while in flight (gated by an `$active` store so a no-op cancel/reset can't wipe data).
+  - [x] Polling (`refetchInterval`) resumes when `enabled` flips back to `true`, not only on the next settle.
+  - [x] `invalidate` is a no-op on an empty `on` / `refetch` (parity with `keepFresh`).
+- **Performance**
+  - [x] Barrier: a run superseded/cancelled during the barrier wait is dropped by a post-barrier currency re-gate (`barrierWaitFx` → `isCurrent`) before it hits the network; TAKE_FIRST "busy" now spans the wait.
+  - [x] Validation: the contract/schema is evaluated once per result (was up to 3× across the gate branches + error-message build).
+- **Type safety**
+  - [x] Removed all three internal `as never` config casts (`createMutation` / `createJsonMutation` / factory) via `'effect' in config` branching; `CreateMutationConfig` made honest (`contract` / `validate` / sourced `concurrency` it already supported).
+- **DX**
+  - [x] `createInfiniteQuery` labels its own units under `name` / `debug` (inner page query prefixed `<name>.page`).
+  - [x] Documented that standalone-operator `Store` args (`retry`/`cache`/`timeout`) are default-scope snapshots, not reactive; const-config fork invariant noted on the engine setters.
+
 ### 1.0 — exit criteria
 
 1.0 is a **semver stability commitment**, not a feature milestone — the feature set is already at
@@ -104,7 +126,7 @@ Concrete, checkable gates before tagging 1.0:
 - [x] **Published types are correct** — `@arethetypeswrong/cli` green across node10 / node16 (CJS+ESM) / bundler (CI-gated).
 - [x] **`contract` + `validate` — final shape decided.** Two fields that **compose** at runtime (both run; `contract` then `validate`, first failure wins) — documented as the intended, final design (_not_ to be merged). Spec test in `test/validation.test.ts`. Resolves the same open question farfetched is still holding.
 - [x] **Multiple operators of the same type — specified + tested.** **Last-wins** for `retry` / `cache` / `concurrency` / `timeout` / `applyBarrier` (engine setters), **additive** for `keepFresh` / `invalidate` / `update` (each call adds wiring). Documented on the Operators page; pinned by `test/multi-operators.test.ts`.
-- [x] **Public surface audited** — `src/index.ts` reviewed: consistent families (`create*` / `is*` / `*Cache` / `*Contract` / `*Delay`), config/return types nameable. Fixed the one gap — exported `AbortableEffect` / `QueryEffect` (the `createRequestFx` return / `createQuery` effect-param types). No deprecated or dead exports, no planned renames/removals.
+- [x] **Public surface audited** — `src/index.ts` reviewed: consistent families (`create*` / `is*` / `*Cache` / `*Contract` / `*Delay`), config/return types nameable. Fixed the one gap — exported `AbortableEffect` / `QueryEffect` (the `createRequestFx` return / `createQuery` effect-param types). No deprecated or dead exports, no planned renames/removals. The hardening pass also removed the internal `as never` config casts (typed `'effect' in config` branching) and made `CreateMutationConfig` declare the `contract` / `validate` / sourced `concurrency` it already supported.
 - [ ] **Soak / community signal** — a handful of real-world adopters (or a fixed cooldown with no open API-shape complaints) before committing to compatibility. Avoid an open-ended hold — this is the trigger that turns "waiting for feedback" into a decision.
 - [ ] **Versioned docs snapshot** at the cut (see the VitePress item above).
 - [ ] **API freeze + tag 1.0** — once the above are checked: a `major` changeset; pre-1.0 minors may still break (called out in the changelog).
