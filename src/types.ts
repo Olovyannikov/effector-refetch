@@ -235,6 +235,8 @@ export interface Query<Params, Result, Error, Mapped = Result> {
     inspect: QueryInspect<Params, Mapped, Error>;
     /** Imperative write to `$data` (see `setQueryData`). */
     setData: EventCallable<Mapped | null>;
+    /** Imperative `prev -> next` update of `$data` — applied in the reducer (scope-correct, no getState). */
+    updateData: EventCallable<(prev: Mapped | null) => Mapped | null>;
   } & QueryEngine<Params, Error>;
 
   /**

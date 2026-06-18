@@ -577,14 +577,18 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const commitData = (prev: Mapped | null, value: Mapped): Mapped =>
     config.structuralSharing ? (replaceEqualDeep(prev, value) as Mapped) : value;
 
-  // imperative writes (setQueryData)
+  // imperative writes (setQueryData): a value via setData, or a prev->next updater
+  // via updateData. updateData applies the function in the reducer so `prev` is read
+  // scope-correctly (no getState) in whatever scope the event fires.
   const setData = createEvent<Mapped | null>(evName('setData'));
+  const updateData = createEvent<(prev: Mapped | null) => Mapped | null>(evName('updateData'));
 
   $data
     .on(acceptedDone, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
     .on(cacheHit, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
     .on(staleServe, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
     .on(setData, (_prev, value) => value)
+    .on(updateData, (prev, fn) => fn(prev))
     .reset(reset);
 
   $error
@@ -701,6 +705,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       runFx,
       purgeFx,
       setData,
+      updateData,
       inspect: {
         start: inspectStart,
         run: inspectRun,

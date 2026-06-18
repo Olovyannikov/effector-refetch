@@ -35,8 +35,18 @@ const todos = getQueryData(todosQuery); // current $data
 setQueryData(todosQuery, (prev) => [...(prev ?? []), newTodo]); // value or (prev) => next
 ```
 
-These read/write the no-scope store — for a single client app. In scoped code read
-`scope.getState(query.$data)`, and prefer the [`update`](/api/mutations#update) /
+These read/write the no-scope store — for a single client app. The `(prev) => next`
+updater is applied inside the store reducer (`__.updateData`), so it reads `prev`
+without `getState`. In scoped code read `scope.getState(query.$data)` and write into a
+scope with:
+
+```ts
+import { allSettled } from 'effector';
+
+allSettled(todosQuery.__.updateData, { scope, params: (prev) => [...(prev ?? []), newTodo] });
+```
+
+For mutation-driven edits prefer the [`update`](/api/mutations#update) /
 [`optimisticUpdate`](/recipes/optimistic) operators (they're scope-correct).
 
 ## gcTime?

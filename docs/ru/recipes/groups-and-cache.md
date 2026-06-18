@@ -35,8 +35,18 @@ const todos = getQueryData(todosQuery); // текущее $data
 setQueryData(todosQuery, (prev) => [...(prev ?? []), newTodo]); // значение или (prev) => next
 ```
 
-Они читают/пишут no-scope-стор — для одно-клиентского приложения. В scope-коде читайте
-`scope.getState(query.$data)` и предпочитайте операторы [`update`](/ru/api/mutations#update) /
+Они читают/пишут no-scope-стор — для одно-клиентского приложения. Апдейтер
+`(prev) => next` применяется внутри редьюсера стора (`__.updateData`), поэтому `prev`
+читается без `getState`. В scope-коде читайте `scope.getState(query.$data)`, а пишите в
+scope так:
+
+```ts
+import { allSettled } from 'effector';
+
+allSettled(todosQuery.__.updateData, { scope, params: (prev) => [...(prev ?? []), newTodo] });
+```
+
+Для правок от мутаций предпочитайте операторы [`update`](/ru/api/mutations#update) /
 [`optimisticUpdate`](/ru/recipes/optimistic) (они scope-корректны).
 
 ## gcTime?

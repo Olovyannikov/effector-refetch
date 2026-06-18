@@ -17,6 +17,19 @@ describe('getQueryData / setQueryData', () => {
     setQueryData(query, [9]);
     expect(getQueryData(query)).toEqual([9]);
   });
+
+  it('updater form is scope-correct via __.updateData (reads scoped prev, no getState)', async () => {
+    const query = createQuery({ effect: createEffect(async (): Promise<number[]> => [1]) });
+    const scope = fork();
+    await allSettled(query.start, { scope }); // scope.$data = [1]
+    expect(scope.getState(query.$data)).toEqual([1]);
+
+    // run the updater inside the scope: the reducer reads the *scoped* prev ([1])
+    await allSettled(query.__.updateData, { scope, params: (prev) => [...(prev ?? []), 2] });
+
+    expect(scope.getState(query.$data)).toEqual([1, 2]);
+    expect(query.$data.getState()).toBeNull(); // global store untouched
+  });
 });
 
 describe('factory group invalidation', () => {
