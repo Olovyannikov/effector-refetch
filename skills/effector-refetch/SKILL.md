@@ -193,6 +193,10 @@ expect(scope.getState(userQuery.$data)).toEqual(/* ... */);
 - **Do not `await allSettled` for polling, infinite timers, or barrier-gated runs that stay busy**
   — the scope never goes idle. Fire the trigger, assert/advance, then resolve.
 - Tests must avoid real timers/network; model delays inside the effect handler.
+- **Cache isolation for SSR**: `fork({ values: [[$queryCache, inMemoryCache()]] })` per request —
+  every query in that scope gets an isolated adapter (entries namespaced per query by
+  `name` ?? effect sid); transfer with `dehydrate(cache)` / `hydrate(cache, snapshot)`.
+  Without `$queryCache` adapters are module-level and shared across scopes.
 
 ## Barrier (auth 401) & offline
 

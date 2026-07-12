@@ -1,4 +1,31 @@
+import { createStore } from 'effector';
 import type { CacheAdapter, CacheEntry } from './types';
+
+/**
+ * Scope-level cache adapter override. Set it per fork to give every query in that
+ * scope an isolated cache — the one-liner that makes multi-tenant SSR safe:
+ *
+ *   // server, per request
+ *   const cache = inMemoryCache();
+ *   const scope = fork({ values: [[$queryCache, cache]] });
+ *   await allSettled(todosQuery.start, { scope });
+ *   const payload = { values: serialize(scope), cache: dehydrate(cache) };
+ *
+ *   // client
+ *   const cache = inMemoryCache();
+ *   hydrate(cache, payload.cache);
+ *   const scope = fork({ values: [...fromJSON(payload.values), [$queryCache, cache]] });
+ *
+ * `null` (default) — every query uses its own configured adapter (module-level,
+ * shared across scopes; fine for a single-client app). In a shared scope adapter,
+ * entries are namespaced per query: `name` ?? the effect's sid ?? a creation
+ * counter — give queries stable `name`s when the server and client bundles may
+ * initialize modules in a different order.
+ */
+export const $queryCache = createStore<CacheAdapter | null>(null, {
+  serialize: 'ignore',
+  name: '$queryCache',
+});
 
 /** Optional observers for cache activity. */
 export interface CacheEvents {

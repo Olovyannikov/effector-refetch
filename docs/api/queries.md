@@ -95,6 +95,7 @@ timeout(search, 5000); // abort + fail a run that takes over 5s
 - **`swr: true`** — serve a stale entry immediately, revalidate in the background (`$stale` flips `true` → `false`).
 - **`dedupe: true`** — coalesce identical in-flight requests (by key) into one effect run.
 - Adapters: `inMemoryCache({ maxAge?, maxEntries?, onHit?, onMiss?, onExpired?, onEvicted? })` (LRU GC + events), `localStorageCache({ version?, maxAge? })` / `sessionStorageCache(...)` (bump `version` to invalidate old data), `voidCache`.
+- **`$queryCache`** — scope-level adapter override: `fork({ values: [[$queryCache, inMemoryCache()]] })` gives every query in that scope an isolated cache (multi-tenant SSR). See the [SSR recipe](/recipes/ssr-and-testing#isolating-the-cache-per-request-querycache).
 
 ## Params mapping (`source` / `mapParams`)
 

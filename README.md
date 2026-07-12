@@ -295,7 +295,7 @@ directly and composable with a plain `attach` — cancellation survives the wrap
 > SSR note: in-flight controllers are tracked per query _instance_ (a closure
 > `Set`), not per scope. For isolated SSR you already build per-request units, so
 > this is a non-issue; just avoid sharing one query instance across concurrent
-> requests if you also call `cancel`.
+> requests if you also call `cancel`. For cache isolation set `$queryCache` per fork.
 
 ## Validation (contracts)
 
@@ -529,7 +529,7 @@ await allSettled(characterQuery.start, { scope, params: 1 });
 expect(scope.getState(originQuery.$data)).toBeTruthy();
 ```
 
-> Note: cache adapters hold state outside the effector scope, so cache is shared across scopes unless you pass a fresh adapter per scope.
+> Note: without `$queryCache` cache adapters hold module-level state shared across scopes. Set `fork({ values: [[$queryCache, inMemoryCache()]] })` per request for isolated, dehydratable SSR caches.
 
 ## vs. farfetched
 

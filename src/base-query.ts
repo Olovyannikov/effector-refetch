@@ -12,6 +12,7 @@ import {
 } from 'effector';
 
 import type {
+  CacheAdapter,
   ConcurrencyStrategy,
   CreateQueryConfig,
   CreateQueryHandlerConfig,
@@ -23,6 +24,7 @@ import type {
 } from './types';
 import { ValidationError } from './validation';
 import { provideAbortSignal, RequestError, takeAbortSignal } from './request';
+import { $queryCache } from './cache';
 import { replaceEqualDeep } from './utils';
 import { makeTrigger } from './trigger';
 import { setupPolling } from './engine/polling';
@@ -30,6 +32,9 @@ import { setupIntrospection } from './engine/introspection';
 
 /** A never-aborted signal for runs that are not cancellable by design (prefetch). */
 const NEVER_ABORTED = new AbortController().signal;
+
+/** Fallback namespace id for queries without a `name` or an effect sid. */
+let queryCounter = 0;
 
 interface Run<P> {
   runId: number;
@@ -91,6 +96,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   const mapData = config.mapData ?? (({ result }) => result as unknown as Mapped);
   const mapError = config.mapError ?? (({ error }) => error);
+
+  // per-query namespace inside a SHARED scope adapter ($queryCache): name -> effect
+  // sid (stable across server/client with the effector plugin) -> creation counter
+  const cacheScopeId: string =
+    config.name ?? (effectFx as { sid?: string | null }).sid ?? `q${++queryCounter}`;
+  // only called on cache paths, where cacheRef is guaranteed non-null
+  const cacheKeyOf = (mapped: unknown, scoped: boolean): string => {
+    const key = cacheRef!.key(mapped as Params);
+    return scoped ? `${cacheScopeId}:${key}` : key;
+  };
 
   // devtools labelling: name the public units when a `name` (or `debug`) is given
   const ns = config.name ?? (config.debug ? 'query' : undefined);
@@ -330,14 +345,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       params,
       mapped,
       staleAfter,
+      adapter,
     }: {
       params: Params;
       mapped: unknown;
       staleAfter: number;
+      adapter: CacheAdapter | null;
     }) => {
       const cfg = cacheRef;
       if (!cfg) return { entry: null, params, mapped, fresh: false };
-      const entry = await cfg.adapter.get(cfg.key(mapped as Params));
+      const entry = await (adapter ?? cfg.adapter).get(cacheKeyOf(mapped, adapter !== null));
       const fresh = entry != null && Date.now() - entry.storedAt < staleAfter;
       return { entry, params, mapped, fresh };
     },
@@ -350,9 +367,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
   sample({
     clock: proceed,
-    source: $staleAfterSrc,
+    source: { stale: $staleAfterSrc, adapter: $queryCache },
     filter: (_s, r) => !!cacheRef && !r.fresh,
-    fn: (s, r) => ({ params: r.params, mapped: r.mapped, staleAfter: staleOf(s) }),
+    fn: ({ stale, adapter }, r) => ({
+      params: r.params,
+      mapped: r.mapped,
+      staleAfter: staleOf(stale),
+      adapter,
+    }),
     target: lookupFx,
   });
   sample({
@@ -384,12 +406,18 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   const setFx = createEffect({
     name: evName('setFx'),
-    handler: (p: { params: Params; mapped: unknown; result: Result }) => {
+    handler: (p: { params: Params; mapped: unknown; result: Result; adapter: CacheAdapter | null }) => {
       const cfg = cacheRef;
-      if (cfg) cfg.adapter.set(cfg.key(p.mapped as Params), p.result, Date.now());
+      if (cfg) (p.adapter ?? cfg.adapter).set(cacheKeyOf(p.mapped, p.adapter !== null), p.result, Date.now());
     },
   });
-  sample({ clock: acceptedDone, filter: () => !!cacheRef, target: setFx });
+  sample({
+    clock: acceptedDone,
+    source: $queryCache,
+    filter: () => !!cacheRef,
+    fn: (adapter, p) => ({ ...p, adapter }),
+    target: setFx,
+  });
 
   // prefetch: warm the cache without touching $data/$status (cache-only; skips if fresh)
   const prefetchLookupFx = createEffect({
@@ -398,49 +426,78 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       params,
       mapped,
       staleAfter,
+      adapter,
     }: {
       params: Params;
       mapped: unknown;
       staleAfter: number;
+      adapter: CacheAdapter | null;
     }) => {
       const cfg = cacheRef;
-      if (!cfg) return { params, mapped, fresh: false };
-      const entry = await cfg.adapter.get(cfg.key(mapped as Params));
-      return { params, mapped, fresh: entry != null && Date.now() - entry.storedAt < staleAfter };
+      if (!cfg) return { params, mapped, adapter, fresh: false };
+      const entry = await (adapter ?? cfg.adapter).get(cacheKeyOf(mapped, adapter !== null));
+      return { params, mapped, adapter, fresh: entry != null && Date.now() - entry.storedAt < staleAfter };
     },
   });
   const prefetchRunFx = createEffect<
-    { params: Params; mapped: unknown },
-    { params: Params; mapped: unknown; result: Result },
+    { params: Params; mapped: unknown; adapter: CacheAdapter | null },
+    { params: Params; mapped: unknown; result: Result; adapter: CacheAdapter | null },
     Error
   >({
     name: evName('prefetchRunFx'),
-    handler: async ({ params, mapped }) => ({
+    handler: async ({ params, mapped, adapter }) => ({
       params,
       mapped,
+      adapter,
       result: await callEffect(mapped, NEVER_ABORTED),
     }),
   });
   sample({
     clock: prefetch,
-    source: { src: $mapSrc, stale: $staleAfterSrc },
+    source: { src: $mapSrc, stale: $staleAfterSrc, adapter: $queryCache },
     filter: () => !!cacheRef,
-    fn: ({ src, stale }, params) => ({ params, mapped: mapOf(params, src), staleAfter: staleOf(stale) }),
+    fn: ({ src, stale, adapter }, params) => ({
+      params,
+      mapped: mapOf(params, src),
+      staleAfter: staleOf(stale),
+      adapter,
+    }),
     target: prefetchLookupFx,
   });
   sample({
     clock: prefetchLookupFx.doneData,
     filter: ({ fresh }) => !fresh,
-    fn: ({ params, mapped }) => ({ params, mapped }),
+    fn: ({ params, mapped, adapter }) => ({ params, mapped, adapter }),
     target: prefetchRunFx,
   });
   sample({ clock: prefetchRunFx.doneData, target: setFx });
 
+  // purge seam: an event (targetable by the cache() operator) sampled with the scope
+  // adapter. In a SHARED scope adapter only this query's namespaced entries are removed
+  // (via dump), so one query's purge can't wipe its neighbours.
+  const purgeRequested = createEvent<void>(evName('purge'));
   const purgeFx = createEffect({
     name: evName('purgeFx'),
-    handler: () => {
-      cacheRef?.adapter.purge();
+    handler: ({ adapter }: { adapter: CacheAdapter | null }) => {
+      const cfg = cacheRef;
+      if (!cfg) return;
+      if (!adapter) {
+        cfg.adapter.purge();
+        return;
+      }
+      if (typeof adapter.dump === 'function') {
+        const prefix = `${cacheScopeId}:`;
+        for (const entry of adapter.dump()) if (entry.key.startsWith(prefix)) adapter.remove(entry.key);
+      } else {
+        adapter.purge();
+      }
     },
+  });
+  sample({
+    clock: purgeRequested,
+    source: $queryCache,
+    fn: (adapter) => ({ adapter }),
+    target: purgeFx,
   });
 
   // dedupe gate: drop a run whose key is already in flight (coalesce)
@@ -788,7 +845,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     __: {
       effect: effectFx,
       runFx,
-      purgeFx,
+      purgeFx: purgeRequested,
       setData,
       updateData,
       inspect: {

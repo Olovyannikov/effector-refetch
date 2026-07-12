@@ -74,7 +74,7 @@
 | роутер                | `@farfetched/atomic-router`                                   | `attachToRoute` (структурно — без импорта роутера)                                            |
 | devtools              | `@farfetched/dev-tools`                                       | визуальные панели (React/Vue/Solid) + поток интроспекции                                      |
 | биндинги              | `@farfetched/solid` + `useUnit`                               | react / vue / solid + `useQuery` + `useSuspenseQuery`                                         |
-| SSR                   | `fork` / `allSettled`                                         | `fork` / `allSettled`                                                                         |
+| SSR                   | `fork` / `allSettled` (in-memory кэш глобален)                | `fork` / `allSettled` + scope-изолированный кэш (`$queryCache`)                               |
 | зрелость / экосистема | **больше, проверена в бою**                                   | молодой, активно развивается                                                                  |
 
 ## Что выбрать?

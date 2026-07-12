@@ -197,7 +197,8 @@ export interface QueryEngine<Params, Error> {
   setValidate: (fn: ((result: unknown, params: Params) => string[] | null) | null) => void;
   setTimeout: (ms: number) => void;
   setBarrier: (barrier: Barrier | null) => void;
-  purgeFx: Effect<void, void, any>;
+  /** Purge this query's cache entries (scope-aware: honors `$queryCache` and its namespacing). */
+  purgeFx: EventCallable<void>;
 }
 
 export interface QueryFinished<Params, Result, Error> {

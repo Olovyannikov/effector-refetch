@@ -72,7 +72,7 @@ Be aware of these before switching:
 | router               | `@farfetched/atomic-router`                                   | `attachToRoute` (structural — no router import)                                              |
 | devtools             | `@farfetched/dev-tools`                                       | visual panels (React/Vue/Solid) + introspection stream                                       |
 | bindings             | `@farfetched/solid` + `useUnit`                               | react / vue / solid + `useQuery` + `useSuspenseQuery`                                        |
-| SSR                  | `fork` / `allSettled`                                         | `fork` / `allSettled`                                                                        |
+| SSR                  | `fork` / `allSettled` (in-memory cache is global)             | `fork` / `allSettled` + scope-isolated cache (`$queryCache`)                                 |
 | maturity / ecosystem | **larger, battle-tested**                                     | young, actively developed                                                                    |
 
 ## Which should you use?
