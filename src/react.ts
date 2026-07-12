@@ -101,6 +101,10 @@ function suspenseCacheFor(scope: object): WeakMap<object, Promise<void>> {
  * Client-side Suspense (CSR). Scope-aware reads/triggers via effector-react,
  * but the settle signal is observed globally, so pair it with `fork` only
  * outside of concurrent SSR streaming.
+ *
+ * The suspense promise is cached per (scope, query) and dropped on settle. A query
+ * holds a single state, so when several components suspend on the same query the
+ * params of the first starter win — pass the same params, or use separate queries.
  */
 export function useSuspenseQuery<Params, Result, Error, Mapped>(
   query: Query<Params, Result, Error, Mapped>,
@@ -134,6 +138,10 @@ export function useSuspenseQuery<Params, Result, Error, Mapped>(
         scope: scope ?? undefined,
         fn: () => {
           unwatch();
+          // drop the entry HERE, not only on a `done`/`fail` render: if the component
+          // unmounted before the settle, a stale RESOLVED promise would otherwise be
+          // re-thrown on the next pending cycle — React retries it instantly, in a loop
+          cache.delete(query as object);
           resolve();
         },
       });

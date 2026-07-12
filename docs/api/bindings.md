@@ -77,6 +77,8 @@ of staleness; `'always'` ignores it.
 `useSuspenseQuery` returns the data directly (never `null`): it **auto-starts** the query,
 suspends the nearest `<Suspense>` while loading, throws to the nearest Error Boundary on failure,
 and returns the data when done.
+The suspense promise is cached per (scope, query) and dropped on settle; a query holds a single
+state, so when several components suspend on the same query, the first starter's params win.
 
 ```tsx
 import { Suspense } from 'react';

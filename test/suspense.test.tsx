@@ -72,6 +72,46 @@ describe('useSuspenseQuery', () => {
     expect(scope.getState(query.$status)).toBe('done');
   });
 
+  it('does not reuse a settled suspense promise for a later pending cycle (no render busy-loop)', async () => {
+    const resolvers: Array<(v: { name: string }) => void> = [];
+    const fx = createEffect((_id: number) => new Promise<{ name: string }>((res) => resolvers.push(res)));
+    const query = createQuery({ effect: fx });
+
+    let renders = 0;
+    function View() {
+      renders++;
+      const data = useSuspenseQuery(query, 1);
+      return <span>{data.name}</span>;
+    }
+    const ui = (
+      <Suspense fallback={<span>loading…</span>}>
+        <View />
+      </Suspense>
+    );
+
+    // mount -> suspend -> unmount BEFORE the settle (the cached promise is orphaned)
+    const first = render(ui);
+    expect(screen.getByText('loading…')).toBeTruthy();
+    first.unmount();
+
+    // cycle 1 settles: the orphaned cached promise resolves
+    resolvers[0]({ name: 'first' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // a new pending cycle begins, then the component mounts again
+    query.refresh(1);
+    renders = 0;
+    render(ui);
+    expect(screen.getByText('loading…')).toBeTruthy();
+
+    // with a stale RESOLVED promise in the cache React would retry-render in a hot loop here
+    await new Promise((r) => setTimeout(r, 20));
+    expect(renders).toBeLessThan(10);
+
+    resolvers[1]({ name: 'second' });
+    await waitFor(() => expect(screen.getByText('second')).toBeTruthy());
+  });
+
   it('throws to the nearest Error Boundary on failure', async () => {
     const fx = createEffect((): Promise<number> => Promise.reject(new Error('nope')));
     const query = createQuery({ effect: fx });

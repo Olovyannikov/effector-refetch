@@ -1,4 +1,4 @@
-import { allSettled, createEvent, sample, type Scope, type Store } from 'effector';
+import { allSettled, createEvent, sample, type EventCallable, type Scope, type Store } from 'effector';
 import { createBarrier, type Barrier } from './barrier';
 import type { Query } from './types';
 
@@ -12,6 +12,32 @@ function onWindow(event: string, handler: () => void): () => void {
   return () => window.removeEventListener(event, handler);
 }
 
+// One `fired` event + `sample` per (query, window event) — effector graph nodes cannot be
+// removed, so per-call wiring would leak when subscribing on every component mount.
+// Subscriptions differ only in their DOM listener (and scope), which IS removable.
+const wiring = new WeakMap<AnyQuery, Map<string, EventCallable<void>>>();
+
+function firedFor(query: AnyQuery, event: string): EventCallable<void> {
+  let byEvent = wiring.get(query);
+  if (!byEvent) {
+    byEvent = new Map();
+    wiring.set(query, byEvent);
+  }
+  let fired = byEvent.get(event);
+  if (!fired) {
+    fired = createEvent();
+    sample({
+      clock: fired,
+      source: { params: query.$params, enabled: query.$enabled },
+      filter: ({ enabled, params }) => enabled && params !== null,
+      fn: ({ params }) => params as never,
+      target: query.refetch,
+    });
+    byEvent.set(event, fired);
+  }
+  return fired;
+}
+
 /**
  * Refetch the query (with its last params) on a window event, if it has run and is
  * enabled. The DOM listener fires a plain event; params/enabled are read declaratively
@@ -19,17 +45,11 @@ function onWindow(event: string, handler: () => void): () => void {
  * `allSettled` — params/enabled are then read from that scope and the refetch runs there
  * (fork-correct). `allSettled` (not `scopeBind`) is used because it holds the fork context
  * across the query's async run chain. Without a scope it targets the no-scope store
- * (ideal for a single-client app).
+ * (ideal for a single-client app). Safe to call on every mount: the effector wiring is
+ * created once per (query, event); unsubscribe removes only the DOM listener.
  */
 function refetchOnWindowEvent(query: AnyQuery, event: string, scope?: Scope): () => void {
-  const fired = createEvent();
-  sample({
-    clock: fired,
-    source: { params: query.$params, enabled: query.$enabled },
-    filter: ({ enabled, params }) => enabled && params !== null,
-    fn: ({ params }) => params as never,
-    target: query.refetch,
-  });
+  const fired = firedFor(query, event);
   const trigger = scope ? () => void allSettled(fired, { scope }) : () => fired();
   return onWindow(event, trigger);
 }
