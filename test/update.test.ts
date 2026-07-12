@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allSettled, createEffect, createEvent, fork } from 'effector';
+import { allSettled, createEffect, createEvent, createStore, fork } from 'effector';
 import { createMutation, createQuery, optimisticUpdate, update } from '../src';
 
 describe('update (patch $data without refetch)', () => {
@@ -77,6 +77,7 @@ describe('update (patch $data without refetch)', () => {
 });
 
 describe('optimisticUpdate', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
   function deferredMutation() {
     const ctl: Array<{ res: (v: string) => void; rej: (e: unknown) => void }> = [];
     const fx = createEffect(
@@ -196,6 +197,174 @@ describe('optimisticUpdate', () => {
     await allSettled(mutation.cancel, { scope });
     await allSettled(mutation.reset, { scope });
     expect(scope.getState(todos.$data)).toEqual(['a']);
+  });
+
+  it('parallel mutations: a failure rolls back ONLY its own layer', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const { mutation, ctl } = deferredMutation();
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+
+    const pa = allSettled(mutation.mutate, { scope, params: 'A' });
+    const pb = allSettled(mutation.mutate, { scope, params: 'B' });
+    expect(scope.getState(todos.$data)).toEqual(['a', 'A', 'B']);
+
+    ctl[0].rej(new Error('A failed'));
+    await tick(); // allSettled waits for the whole scope, so flush instead
+    // only A's layer removed; the original base survives under B
+    expect(scope.getState(todos.$data)).toEqual(['a', 'B']);
+
+    ctl[1].res('ok');
+    await Promise.all([pa, pb]);
+    expect(scope.getState(todos.$data)).toEqual(['a', 'B']);
+  });
+
+  it('parallel mutations: a failure after the other one settled keeps its result', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const { mutation, ctl } = deferredMutation();
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+
+    const pa = allSettled(mutation.mutate, { scope, params: 'A' });
+    const pb = allSettled(mutation.mutate, { scope, params: 'B' });
+
+    ctl[0].res('ok');
+    await tick(); // A materialized (no commit -> optimistic value kept)
+    expect(scope.getState(todos.$data)).toEqual(['a', 'A', 'B']);
+
+    ctl[1].rej(new Error('B failed'));
+    await Promise.all([pa, pb]);
+    expect(scope.getState(todos.$data)).toEqual(['a', 'A']);
+  });
+
+  it('parallel mutations: both fail -> back to the original base', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const { mutation, ctl } = deferredMutation();
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+    const pa = allSettled(mutation.mutate, { scope, params: 'A' });
+    const pb = allSettled(mutation.mutate, { scope, params: 'B' });
+
+    ctl[0].rej(new Error('A failed'));
+    await tick();
+    ctl[1].rej(new Error('B failed'));
+    await Promise.all([pa, pb]);
+    expect(scope.getState(todos.$data)).toEqual(['a']);
+  });
+
+  it('parallel mutations: commit reconciles its own layer, the other stays optimistic', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const { mutation, ctl } = deferredMutation();
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), `temp:${params}`],
+      commit: ({ data, result }) => (data ?? []).map((x) => (x.startsWith('temp:') ? result : x)),
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+    const pa = allSettled(mutation.mutate, { scope, params: 'A' });
+    const pb = allSettled(mutation.mutate, { scope, params: 'B' });
+    expect(scope.getState(todos.$data)).toEqual(['a', 'temp:A', 'temp:B']);
+
+    ctl[0].res('server:A');
+    await tick();
+    expect(scope.getState(todos.$data)).toEqual(['a', 'server:A', 'temp:B']);
+
+    ctl[1].res('server:B');
+    await Promise.all([pa, pb]);
+    expect(scope.getState(todos.$data)).toEqual(['a', 'server:A', 'server:B']);
+  });
+
+  it('cancel rolls back all in-flight layers even after an earlier settle', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const { mutation, ctl } = deferredMutation();
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+    const pa = allSettled(mutation.mutate, { scope, params: 'A' });
+    ctl[0].res('ok');
+    await pa; // A settles -> materialized
+
+    const pb = allSettled(mutation.mutate, { scope, params: 'B' });
+    expect(scope.getState(todos.$data)).toEqual(['a', 'A', 'B']);
+
+    const c = allSettled(mutation.cancel, { scope });
+    ctl[1].res('late');
+    await Promise.all([pb, c]);
+    // B (still in flight at cancel) is rolled back; the settled A stays
+    expect(scope.getState(todos.$data)).toEqual(['a', 'A']);
+  });
+
+  it('rolls back when the run is skipped by the enabled gate', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const fx = createEffect(async (p: string) => p);
+    const mutation = createMutation({ effect: fx, enabled: createStore(false) });
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+    await allSettled(mutation.mutate, { scope, params: 'x' });
+
+    // the run never executed (enabled gate) -> the optimistic layer must not stick
+    expect(scope.getState(todos.$data)).toEqual(['a']);
+  });
+
+  it('rolls back the superseded layer under TAKE_LATEST', async () => {
+    const todos = createQuery({ effect: createEffect(async () => ['a']) });
+    const ctl: Array<{ res: (v: string) => void; rej: (e: unknown) => void }> = [];
+    const fx = createEffect(
+      (_p: string) =>
+        new Promise<string>((res, rej) => {
+          ctl.push({ res, rej });
+        }),
+    );
+    const mutation = createMutation({ effect: fx, concurrency: 'TAKE_LATEST' });
+    optimisticUpdate({
+      query: todos,
+      on: mutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+
+    const scope = fork();
+    await allSettled(todos.start, { scope });
+    const pa = allSettled(mutation.mutate, { scope, params: 'A' });
+    const pb = allSettled(mutation.mutate, { scope, params: 'B' }); // supersedes A
+    expect(scope.getState(todos.$data)).toContain('B');
+
+    ctl[1].res('ok');
+    ctl[0].res('late'); // A is no longer current
+    await Promise.all([pa, pb]);
+    // A's layer must not survive: it was superseded and never finished
+    expect(scope.getState(todos.$data)).toEqual(['a', 'B']);
   });
 
   it('reconciles with the server result via commit on success', async () => {
