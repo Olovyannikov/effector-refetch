@@ -75,6 +75,25 @@ Be aware of these before switching:
 | SSR                  | `fork` / `allSettled` (in-memory cache is global)             | `fork` / `allSettled` + scope-isolated cache (`$queryCache`)                                 |
 | maturity / ecosystem | **larger, battle-tested**                                     | young, actively developed                                                                    |
 
+## SSR side by side
+
+Both libraries do SSR the effector way — `fork()` per request, `allSettled`, `serialize(scope)`
+for store state (`$data` / `$status` restore without a loading flash). The difference is the
+**cache layer**:
+
+- **farfetched** resolves an adapter through an internal `__.$instance` store ("to support Fork
+  API"), so substituting an adapter instance per fork is technically possible — but you do it
+  per adapter, by hand; the default `inMemoryCache` keeps entries in a closure shared by every
+  scope, and the adapter contract (`get` / `set` / `purge` / `unset`) can't enumerate entries,
+  so there is no built-in server→client cache transfer. Keys are namespaced by the query's sid
+  (the effector babel/SWC plugin is required for caching).
+- **effector-refetch** has one switch for the whole app: `fork({ values: [[$queryCache,
+inMemoryCache()]] })` isolates every query's cache in that scope. Entries are namespaced per
+  query (`name` ?? effect sid ?? counter, no plugin required), `dehydrate(cache)` /
+  `hydrate(cache, snapshot)` transfer exactly one request's entries with `storedAt` preserved
+  (so `staleAfter` ages from the server fetch), and `$queryCache` is excluded from
+  `serialize(scope)` automatically. See the [SSR recipe](/recipes/ssr-and-testing).
+
 ## Which should you use?
 
 - **Use farfetched** if you want the most mature option today, lean heavily on sourced-everything

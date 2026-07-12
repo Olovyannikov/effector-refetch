@@ -39,6 +39,7 @@ const query = createQuery({
 refetch: `$isInitialLoading` — in flight with no real data yet (placeholder doesn't count;
 `initialData` does) — show a skeleton; `$isRefetching` — in flight over existing data
 (refetch / polling / SWR revalidation) — keep the data visible, show a corner spinner.
+Runnable demo: [`examples/loading-flags.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/loading-flags.ts).
 
 `query.prefetch(params)` warms the cache for `params` **without** touching `$data`/`$status`
 (no-op without a cache, skips when already fresh) — e.g. prefetch the next page on hover.

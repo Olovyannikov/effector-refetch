@@ -73,10 +73,12 @@ describe('$queryCache (scope-isolated cache)', () => {
     expect(calls).toBe(1);
     const payload = { cache: dehydrate(serverCache) };
 
-    // client
+    // client — the documented two-step pattern: fork with serialized values,
+    // then point $queryCache at the client adapter (stores are callable)
     const clientCache = inMemoryCache();
     hydrate(clientCache, payload.cache);
-    const clientScope = fork({ values: [[$queryCache, clientCache]] });
+    const clientScope = fork();
+    await allSettled($queryCache, { scope: clientScope, params: clientCache });
     await allSettled(query.start, { scope: clientScope, params: 7 });
     expect(calls).toBe(1); // served from the hydrated cache
     expect(clientScope.getState(query.$data)).toBe('todo-7');

@@ -14,7 +14,8 @@ import type { CacheAdapter, CacheEntry } from './types';
  *   // client
  *   const cache = inMemoryCache();
  *   hydrate(cache, payload.cache);
- *   const scope = fork({ values: [...fromJSON(payload.values), [$queryCache, cache]] });
+ *   const scope = fork({ values: payload.values });
+ *   await allSettled($queryCache, { scope, params: cache }); // stores are callable
  *
  * `null` (default) — every query uses its own configured adapter (module-level,
  * shared across scopes; fine for a single-client app). In a shared scope adapter,

@@ -39,6 +39,7 @@ const query = createQuery({
 `$isInitialLoading` — прогон без реальных данных (плейсхолдер не считается; `initialData` —
 считается) — показывайте скелетон; `$isRefetching` — прогон поверх имеющихся данных
 (refetch / поллинг / SWR-ревалидация) — данные видимы, спиннер в углу.
+Запускаемое демо: [`examples/loading-flags.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/loading-flags.ts).
 
 `query.prefetch(params)` прогревает кэш под `params` **без** изменения `$data`/`$status`
 (no-op без кэша, пропускает свежие записи) — например, префетч следующей страницы по hover.

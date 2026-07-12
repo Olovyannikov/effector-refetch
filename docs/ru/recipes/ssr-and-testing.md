@@ -43,8 +43,9 @@ const payload = { values: serialize(scope), cache: dehydrate(cache) };
 // клиент
 const clientCache = inMemoryCache();
 hydrate(clientCache, payload.cache); // storedAt сохраняется → staleAfter стареет корректно
-const clientScope = fork({ values: [...fromJSON(payload.values), [$queryCache, clientCache]] });
-// $data восстановлен через serialize, закэшированные ключи дают хит вместо перезапроса
+const clientScope = fork({ values: payload.values }); // $data восстановлен — без мигания загрузки
+await allSettled($queryCache, { scope: clientScope, params: clientCache }); // сторы вызываемы
+// закэшированные ключи теперь дают хит вместо перезапроса
 ```
 
 В общем scope-адаптере записи неймспейсятся по query: `name` ?? sid эффекта ?? счётчик

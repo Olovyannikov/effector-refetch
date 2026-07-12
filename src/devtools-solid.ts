@@ -115,6 +115,8 @@ function QueryDetail(props: { label: string; query: AnyQuery }) {
     data: Accessor<unknown>;
     error: Accessor<unknown>;
     status: Accessor<QueryStatus>;
+    isInitialLoading: Accessor<boolean>;
+    isRefetching: Accessor<boolean>;
     params: Accessor<unknown>;
   };
   const [log, setLog] = createSignal<QueryLogEntry[]>([]);
@@ -136,6 +138,22 @@ function QueryDetail(props: { label: string; query: AnyQuery }) {
       dot(() => u.status()),
       h('strong', { style: { 'margin-right': '8px' } }, props.label),
       h('span', { style: () => ({ color: COLOR[u.status()], 'font-size': '12px' }) }, () => u.status()),
+      () =>
+        u.isInitialLoading()
+          ? h(
+              'span',
+              { style: { 'margin-left': '8px', color: COLOR.pending, 'font-size': '12px' } },
+              'first load',
+            )
+          : null,
+      () =>
+        u.isRefetching()
+          ? h(
+              'span',
+              { style: { 'margin-left': '8px', color: COLOR.pending, 'font-size': '12px' } },
+              'refetching ⟳',
+            )
+          : null,
     ),
     section(
       'Params',

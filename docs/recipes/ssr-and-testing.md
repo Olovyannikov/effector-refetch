@@ -43,8 +43,9 @@ const payload = { values: serialize(scope), cache: dehydrate(cache) };
 // client
 const clientCache = inMemoryCache();
 hydrate(clientCache, payload.cache); // storedAt preserved → staleAfter ages correctly
-const clientScope = fork({ values: [...fromJSON(payload.values), [$queryCache, clientCache]] });
-// $data restored by serialize, cached keys hit instead of refetching
+const clientScope = fork({ values: payload.values }); // $data restored — no loading flash
+await allSettled($queryCache, { scope: clientScope, params: clientCache }); // stores are callable
+// cached keys now hit instead of refetching
 ```
 
 Inside a shared scope adapter, entries are namespaced per query — `name` ?? the effect's sid
