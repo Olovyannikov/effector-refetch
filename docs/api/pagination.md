@@ -16,6 +16,7 @@ const feed = createInfiniteQuery({
 
 feed.start({ tag: 'cats' });
 feed.fetchNext(); // appends; no-op when $hasNextPage is false or already loading
+feed.refetchAll(); // re-fetches EVERY accumulated page (same pageParams), keeping the window
 ```
 
 Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$status`, `$pending`,

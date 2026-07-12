@@ -30,6 +30,26 @@ invalidate({ on: addTodo, refetch: todosQuery });
 - **`refetch`** — a query or array; each re-runs with its last params, only if it ran before (`status !== 'initial'`), bypassing cache freshness.
 - **`filter`** — optional gate on the trigger payload (e.g. `{ params, result }`).
 
+## invalidateTag
+
+Cross-module invalidation without importing the queries at the call site: give queries
+`tags`, fire the tag from anywhere:
+
+```ts
+import { invalidateTag, createQuery, createInfiniteQuery } from 'effector-refetch';
+
+const todosQuery = createQuery({ effect: fetchTodosFx, cache: true, tags: ['todos'] });
+const feedQuery = createInfiniteQuery({ effect: fetchPageFx, tags: ['todos'] /* … */ });
+
+sample({ clock: addTodo.finished.done, fn: () => 'todos', target: invalidateTag });
+// or a batch: invalidateTag(['todos', 'stats'])
+```
+
+A matching tag makes every tagged query **purge its cache namespace** (prefetch-warmed
+entries and entries under other params don't survive) and **refetch with its last params**
+(only if it has run). A tagged infinite query re-runs `refetchAll` — the whole accumulated
+window. Scope-correct: `allSettled(invalidateTag, { scope, params: 'todos' })`.
+
 ## update
 
 Patch a query's `$data` directly from a result — no refetch:

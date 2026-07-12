@@ -1,4 +1,5 @@
 import {
+  combine,
   createEffect,
   createEvent,
   createStore,
@@ -9,6 +10,7 @@ import {
   type Store,
 } from 'effector';
 import { createQuery } from './create-query';
+import { invalidateTag, matchesTag } from './invalidate';
 import type { ConcurrencyStrategy, QueryStatus } from './types';
 
 export interface GetNextPageParamCtx<PageParam, Page> {
@@ -34,6 +36,8 @@ interface BaseInfiniteConfig<Params, PageParam, Page> {
   /** Cap accumulated pages — drops from the opposite end when exceeded. */
   maxPages?: number;
   concurrency?: ConcurrencyStrategy;
+  /** Invalidation tags: a matching `invalidateTag(...)` triggers `refetchAll`. */
+  tags?: string[];
   name?: string;
   /** Label the public/internal units for the inspector even without a `name`. */
   debug?: boolean;
@@ -62,6 +66,8 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
   fetchNext: EventCallable<void>;
   /** Load and prepend the previous page (needs `getPreviousPageParam`). */
   fetchPrevious: EventCallable<void>;
+  /** Re-fetch every accumulated page with its stored pageParam, keeping the window (unlike `start`). */
+  refetchAll: EventCallable<void>;
   reset: EventCallable<void>;
 
   $pages: Store<Page[]>;
@@ -94,6 +100,7 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
     start: EventCallable<Params>;
     fetchNext: EventCallable<void>;
     fetchPrevious: EventCallable<void>;
+    refetchAll: EventCallable<void>;
     reset: EventCallable<void>;
   };
 }
@@ -153,9 +160,37 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   const start = createEvent<Params>(evName('start'));
   const fetchNext = createEvent<void>(evName('fetchNext'));
   const fetchPrevious = createEvent<void>(evName('fetchPrevious'));
+  const refetchAll = createEvent<void>(evName('refetchAll'));
   const reset = createEvent<void>(evName('reset'));
   // write seam for update()/optimisticUpdate(): patch the accumulated pages
   const setData = createEvent<Page[] | null>(evName('setData'));
+
+  // rederive the window cursors from a pages/pageParams pair (shared by the
+  // page-settle reducer and refetchAll)
+  const deriveState = (pages: Page[], pageParams: PageParam[]): InfiniteState<PageParam, Page> => {
+    const next = getNextPageParam({
+      lastPage: pages[pages.length - 1],
+      allPages: pages,
+      lastPageParam: pageParams[pageParams.length - 1],
+      allPageParams: pageParams,
+    });
+    const prev = getPreviousPageParam
+      ? getPreviousPageParam({
+          firstPage: pages[0],
+          allPages: pages,
+          firstPageParam: pageParams[0],
+          allPageParams: pageParams,
+        })
+      : undefined;
+    return {
+      pages,
+      pageParams,
+      nextPageParam: next ?? null,
+      hasNextPage: next != null,
+      previousPageParam: prev ?? null,
+      hasPreviousPage: prev != null,
+    };
+  };
 
   const $params = createStore<Params | null>(null, nm('$params'))
     .on(start, (_p, params) => params)
@@ -194,37 +229,61 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
         }
       }
 
-      const next = getNextPageParam({
-        lastPage: pages[pages.length - 1],
-        allPages: pages,
-        lastPageParam: pageParams[pageParams.length - 1],
-        allPageParams: pageParams,
-      });
-      const prev = getPreviousPageParam
-        ? getPreviousPageParam({
-            firstPage: pages[0],
-            allPages: pages,
-            firstPageParam: pageParams[0],
-            allPageParams: pageParams,
-          })
-        : undefined;
-
-      return {
-        pages,
-        pageParams,
-        nextPageParam: next ?? null,
-        hasNextPage: next != null,
-        previousPageParam: prev ?? null,
-        hasPreviousPage: prev != null,
-      };
+      return deriveState(pages, pageParams);
     })
     .on(setData, (state, pages) => ({ ...state, pages: pages ?? [] }))
     .reset([reset, start]);
+
+  // ---- refetchAll: reload every accumulated page, keep the window ----
+  // token invalidation (like polling's $pollId): a start/reset during the refetch
+  // makes the in-flight result stale, so it must not overwrite the new state
+  const $refetchToken = createStore(0, nm('$refetchToken')).on([start, reset], (n) => n + 1);
+  const replaceState = createEvent<InfiniteState<PageParam, Page>>(evName('replaceState'));
+  $infinite.on(replaceState, (_s, state) => state);
+
+  const refetchAllFx = createEffect<
+    { params: Params; pageParams: PageParam[]; token: number },
+    { pages: Page[]; pageParams: PageParam[]; token: number },
+    Error
+  >({
+    name: evName('refetchAllFx'),
+    handler: async ({ params, pageParams, token }) => {
+      const pages: Page[] = [];
+      for (const pageParam of pageParams) {
+        // sequential, straight through the effect (not pageQuery) — no intermediate
+        // window states, no TAKE_LATEST self-cancellation
+        pages.push(await call({ params, pageParam, mode: 'append' }));
+      }
+      return { pages, pageParams, token };
+    },
+  });
 
   const $pages = $infinite.map((s) => s.pages);
   const $pageParams = $infinite.map((s) => s.pageParams);
   const $hasNextPage = $infinite.map((s) => s.hasNextPage);
   const $hasPreviousPage = $infinite.map((s) => s.hasPreviousPage);
+  const $pending = combine(pageQuery.$pending, refetchAllFx.pending, (page, all) => page || all);
+
+  // launch the refetch over the stored pageParams (no-op while busy or with no pages)
+  sample({
+    clock: refetchAll,
+    source: { params: $params, inf: $infinite, pending: $pending, token: $refetchToken },
+    filter: ({ inf, pending }) => !pending && inf.pageParams.length > 0,
+    fn: ({ params, inf, token }) => ({
+      params: params as Params,
+      pageParams: inf.pageParams,
+      token,
+    }),
+    target: refetchAllFx,
+  });
+  // apply the fresh window only if no start/reset happened meanwhile
+  sample({
+    clock: refetchAllFx.doneData,
+    source: $refetchToken,
+    filter: (current, { token }) => current === token,
+    fn: (_current, { pages, pageParams }) => deriveState(pages, pageParams),
+    target: replaceState,
+  });
 
   // load first page
   sample({
@@ -236,7 +295,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   // append next page when available and idle (hasNextPage is only true after a page loaded)
   sample({
     clock: fetchNext,
-    source: { params: $params, inf: $infinite, pending: pageQuery.$pending },
+    source: { params: $params, inf: $infinite, pending: $pending },
     filter: ({ inf, pending }) => inf.hasNextPage && !pending,
     fn: ({ params, inf }): PageReq<Params, PageParam> => ({
       params: params as Params,
@@ -249,7 +308,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   // prepend previous page when available and idle
   sample({
     clock: fetchPrevious,
-    source: { params: $params, inf: $infinite, pending: pageQuery.$pending },
+    source: { params: $params, inf: $infinite, pending: $pending },
     filter: ({ inf, pending }) => inf.hasPreviousPage && !pending,
     fn: ({ params, inf }): PageReq<Params, PageParam> => ({
       params: params as Params,
@@ -271,11 +330,29 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     fn: ({ params: req, error }) => ({ params: req.params, error }),
     target: finishedFail,
   });
+  // a failed refetchAll keeps the current window intact and surfaces the error
+  sample({
+    clock: refetchAllFx.fail,
+    fn: ({ params, error }) => ({ params: params.params, error }),
+    target: finishedFail,
+  });
+
+  // tag invalidation: a matching invalidateTag re-fetches the whole window
+  if (config.tags?.length) {
+    const tags = config.tags;
+    sample({
+      clock: invalidateTag,
+      filter: (payload) => matchesTag(payload, tags),
+      fn: () => undefined,
+      target: refetchAll,
+    });
+  }
 
   return {
     start,
     fetchNext,
     fetchPrevious,
+    refetchAll,
     reset,
 
     $pages,
@@ -284,7 +361,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     $hasNextPage,
     $hasPreviousPage,
     $status: pageQuery.$status,
-    $pending: pageQuery.$pending,
+    $pending,
     $error: pageQuery.$error,
     $params,
 
@@ -298,11 +375,12 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
       hasNextPage: $hasNextPage,
       hasPreviousPage: $hasPreviousPage,
       status: pageQuery.$status,
-      pending: pageQuery.$pending,
+      pending: $pending,
       error: pageQuery.$error,
       start,
       fetchNext,
       fetchPrevious,
+      refetchAll,
       reset,
     }),
   };

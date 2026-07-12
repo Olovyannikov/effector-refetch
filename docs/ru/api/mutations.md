@@ -30,6 +30,27 @@ invalidate({ on: addTodo, refetch: todosQuery });
 - **`refetch`** — запрос или массив; каждый перезапускается с последними параметрами, только если уже запускался (`status !== 'initial'`), минуя свежесть кэша.
 - **`filter`** — опциональный гейт по payload триггера (например, `{ params, result }`).
 
+## invalidateTag
+
+Кросс-модульная инвалидация без импорта запросов в месте вызова: дайте запросам
+`tags` и стреляйте тегом откуда угодно:
+
+```ts
+import { invalidateTag, createQuery, createInfiniteQuery } from 'effector-refetch';
+
+const todosQuery = createQuery({ effect: fetchTodosFx, cache: true, tags: ['todos'] });
+const feedQuery = createInfiniteQuery({ effect: fetchPageFx, tags: ['todos'] /* … */ });
+
+sample({ clock: addTodo.finished.done, fn: () => 'todos', target: invalidateTag });
+// или пачкой: invalidateTag(['todos', 'stats'])
+```
+
+Совпавший тег заставляет каждый тегированный запрос **очистить свой кэш-неймспейс**
+(prefetch-прогрев и записи под другими params не переживают инвалидацию) и **перезапроситься
+с последними params** (только если уже запускался). Тегированный infinite-query выполняет
+`refetchAll` — перезагружает всё накопленное окно. Scope-корректно:
+`allSettled(invalidateTag, { scope, params: 'todos' })`.
+
 ## update
 
 Патчит `$data` запроса прямо из результата — без рефетча:

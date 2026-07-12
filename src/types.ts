@@ -110,6 +110,12 @@ export interface CreateQueryConfig<Params, Result, Error, Mapped = Result> {
   /** Gate execution on a barrier — the effect waits while the barrier is locked (e.g. token refresh). */
   barrier?: Barrier;
 
+  /**
+   * Invalidation tags: `invalidateTag('todos')` purges this query's cache namespace
+   * and refetches it with its last params (if it has run). See {@link invalidateTag}.
+   */
+  tags?: string[];
+
   /** Prefix for unit names (devtools). */
   name?: string;
   /** Label units for the effector inspector even without a `name` (uses `query`). */
