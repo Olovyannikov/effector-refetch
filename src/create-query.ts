@@ -1,5 +1,6 @@
 import { is } from 'effector';
 import { createBaseQuery } from './base-query';
+import { wireTagInvalidation } from './invalidate';
 import { cache, concurrency, retry } from './operators';
 import type {
   CreateQueryConfig,
@@ -90,6 +91,8 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
       return null;
     });
   }
+
+  if (config.tags?.length) wireTagInvalidation(query, config.tags);
 
   return query;
 }

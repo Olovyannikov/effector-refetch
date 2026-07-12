@@ -74,13 +74,19 @@ userQuery.start(1);
 ## Mutations + invalidation
 
 ```ts
-import { createMutation, invalidate } from 'effector-refetch';
+import { createMutation, invalidate, invalidateTag } from 'effector-refetch';
 
 const createTodoFx = createEffect((text: string) => api.post('/todos', { text }));
 const createTodo = createMutation({ effect: createTodoFx }); // default concurrency TAKE_EVERY
 createTodo.start('Buy milk'); // or createTodo.mutate(...)
 
 invalidate({ on: createTodo, refetch: todosQuery }); // refetch on mutation success
+
+// cross-module (no query imports at the call site): tags + invalidateTag
+const todosQuery2 = createQuery({ effect: fetchTodosFx, cache: true, tags: ['todos'] });
+sample({ clock: createTodo.finished.done, fn: () => 'todos', target: invalidateTag });
+// tagged queries purge their cache namespace + refetch with last params;
+// tagged infinite queries re-fetch the whole window (refetchAll)
 ```
 
 `update` / `optimisticUpdate` patch one query's data from another query/mutation/event

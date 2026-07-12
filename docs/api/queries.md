@@ -34,6 +34,7 @@ const query = createQuery({
 - **`placeholderData`** — a value or `(prev) => …` shown while there's no real data; `$isPlaceholderData` is `true` until the first real result. Unlike `initialData`, it's not treated as cached.
 - **`mapData` / `mapError`** — normalize result / error before the stores.
 - **`source` / `mapParams`** — map public params (+ `source` store values, read fork-correctly) into the effect's params before every run (see [Params mapping](#params-mapping-source-mapparams)).
+- **`tags`** — invalidation tags: a matching [`invalidateTag(...)`](/api/mutations#invalidatetag) purges the query's cache namespace and refetches it with its last params.
 
 `$pending` is true for **any** in-flight run. To tell a first load from a background
 refetch: `$isInitialLoading` — in flight with no real data yet (placeholder doesn't count;

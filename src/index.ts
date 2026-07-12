@@ -36,7 +36,7 @@ export {
   type NetworkBarrier,
 } from './browser';
 export { createBarrier, type Barrier, type CreateBarrierConfig } from './barrier';
-export { invalidate, type InvalidateConfig } from './invalidate';
+export { invalidate, invalidateTag, type InvalidateConfig } from './invalidate';
 export { attachToRoute, type RouteLike, type AttachToRouteConfig } from './router';
 export { isTrigger, type Trigger } from './trigger';
 export {

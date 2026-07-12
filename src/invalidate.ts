@@ -1,7 +1,45 @@
-import { is, merge, sample, type Effect, type Event } from 'effector';
+import { createEvent, is, merge, sample, type Effect, type Event } from 'effector';
 import type { Mutation, Query } from './types';
 
 type AnyQuery = Query<any, any, any, any>;
+
+/**
+ * Cross-module invalidation by tag — no query imports needed at the call site.
+ * Fire it with one tag or an array; every query created with a matching `tags`
+ * entry purges its cache namespace and — if it has run — refetches with its
+ * last params. Tagged infinite queries re-fetch all accumulated pages.
+ * Scope-correct: `allSettled(invalidateTag, { scope, params: 'todos' })`.
+ *
+ *   const todosQuery = createQuery({ effect: fetchTodosFx, tags: ['todos'] });
+ *   invalidate({ on: addTodo, refetch: [] }); // or simply:
+ *   sample({ clock: addTodo.finished.done, fn: () => 'todos', target: invalidateTag });
+ */
+export const invalidateTag = createEvent<string | string[]>('invalidateTag');
+
+/** @internal One of the payload tags is declared on the unit. */
+export function matchesTag(payload: string | string[], tags: readonly string[]): boolean {
+  return (Array.isArray(payload) ? payload : [payload]).some((tag) => tags.includes(tag));
+}
+
+/** @internal Wire a query's `tags` config to {@link invalidateTag} (called by `createQuery`). */
+export function wireTagInvalidation(query: AnyQuery, tags: readonly string[]): void {
+  // refetch with the last params — only if the query has ever run
+  sample({
+    clock: invalidateTag,
+    source: { params: query.$params, status: query.$status },
+    filter: ({ status }, payload) => status !== 'initial' && matchesTag(payload, tags),
+    fn: ({ params }) => params,
+    target: query.refetch,
+  });
+  // purge the cache namespace unconditionally: prefetch-warmed entries and entries
+  // under OTHER params must not survive the invalidation (scope-aware seam)
+  sample({
+    clock: invalidateTag,
+    filter: (payload) => matchesTag(payload, tags),
+    fn: () => undefined,
+    target: query.__.purgeFx,
+  });
+}
 type Trigger = AnyQuery | Mutation<any, any, any, any> | Event<any> | Effect<any, any, any>;
 
 function toEvent(trigger: Trigger): Event<any> {

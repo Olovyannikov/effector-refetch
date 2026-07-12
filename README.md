@@ -184,6 +184,10 @@ addTodo.mutate({ text: 'Buy milk' }); // -> todosQuery refetches automatically
 - **`refetch`** — a query or array of queries; each re-runs with its last params, only if it has run before (`status !== 'initial'`).
 - **`filter`** — optional gate on the trigger payload (e.g. mutation `{ params, result }`).
 
+Cross-module invalidation — give queries `tags` and fire `invalidateTag('todos')` from
+anywhere: tagged queries purge their cache namespace and refetch with their last params;
+tagged infinite queries re-fetch the whole accumulated window.
+
 A `Mutation` exposes `{ start, mutate, reset, cancel, $data, $error, $status, $pending, $params, finished, aborted }` and works with `useUnit(mutation)` too (`{ data, pending, mutate, ... }`).
 
 ### `update` & optimistic updates
@@ -338,6 +342,7 @@ const feed = createInfiniteQuery({
 
 feed.start({ tag: 'cats' });
 feed.fetchNext(); // appends; no-op when $hasNextPage is false or already loading
+feed.refetchAll(); // re-fetches every accumulated page, keeping the window
 ```
 
 Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$status`, `$pending`,
