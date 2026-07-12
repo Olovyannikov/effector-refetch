@@ -132,6 +132,8 @@ const QueryDetail = defineComponent({
       data: { value: unknown };
       error: { value: unknown };
       status: { value: QueryStatus };
+      isInitialLoading: { value: boolean };
+      isRefetching: { value: boolean };
       params: { value: unknown };
     };
     const log = ref<QueryLogEntry[]>([]);
@@ -153,6 +155,20 @@ const QueryDetail = defineComponent({
           dot(u.status.value),
           h('strong', { style: { marginRight: '8px' } }, props.label),
           h('span', { style: { color: COLOR[u.status.value], fontSize: '12px' } }, u.status.value),
+          u.isInitialLoading.value
+            ? h(
+                'span',
+                { style: { marginLeft: '8px', color: COLOR.pending, fontSize: '12px' } },
+                'first load',
+              )
+            : null,
+          u.isRefetching.value
+            ? h(
+                'span',
+                { style: { marginLeft: '8px', color: COLOR.pending, fontSize: '12px' } },
+                'refetching ⟳',
+              )
+            : null,
         ]),
         section('Params', h('pre', { style: preStyle }, json(u.params.value))),
         section('Data', h('pre', { style: preStyle }, json(u.data.value))),

@@ -38,6 +38,7 @@ addTodo.mutate({ text: 'Buy milk' });
 
 Parallel (`TAKE_EVERY`) mutations are safe: each keeps its own layer, so one failure can't
 wipe another's optimistic value or the original data.
+Runnable demo: [`examples/optimistic-parallel.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/optimistic-parallel.ts).
 
 ::: warning
 With out-of-order settles the layers are re-applied in **start order** — if your `update`

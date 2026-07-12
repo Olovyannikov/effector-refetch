@@ -25,26 +25,37 @@ const serialized = serialize(scope); // effector serialize — $data / $status /
 Bindings are scope-aware: React via `<Provider value={scope}>`, Vue via the
 `EffectorScopePlugin({ scope })`.
 
-### Transferring the cache (`dehydrate` / `hydrate`)
+### Isolating the cache per request (`$queryCache`)
 
-`serialize(scope)` captures the **store state**, but the query **cache** (dedupe / `staleAfter`)
-lives outside the scope, so it isn't included. `dehydrate` snapshots it; `hydrate` restores it on
-the client — so cached params hit instead of refetching:
+By default a query's cache adapter is module-level — shared by every scope. For multi-tenant
+SSR set **`$queryCache`** per fork: every query in that scope reads/writes an isolated adapter,
+so concurrent requests can never see each other's data:
 
 ```ts
-// server — alongside serialize(scope)
+import { $queryCache, inMemoryCache, dehydrate, hydrate } from 'effector-refetch';
+
+// server — one adapter per request
 const cache = inMemoryCache();
-const todos = createQuery({ effect: fetchTodosFx, cache: { adapter: cache } });
-// … run queries under the scope …
+const scope = fork({ values: [[$queryCache, cache]] });
+await allSettled(todosQuery.start, { scope });
 const payload = { values: serialize(scope), cache: dehydrate(cache) };
 
 // client
-hydrate(cache, payload.cache); // warm the cache (storedAt preserved → staleAfter ages correctly)
-const scope = fork({ values: payload.values }); // $data restored — no loading flash
+const clientCache = inMemoryCache();
+hydrate(clientCache, payload.cache); // storedAt preserved → staleAfter ages correctly
+const clientScope = fork({ values: payload.values }); // $data restored — no loading flash
+await allSettled($queryCache, { scope: clientScope, params: clientCache }); // stores are callable
+// cached keys now hit instead of refetching
 ```
 
+Inside a shared scope adapter, entries are namespaced per query — `name` ?? the effect's sid
+?? a creation counter. Give queries stable **`name`s** (or use the effector babel/SWC plugin
+for sids) when the server and client bundles may initialize modules in a different order.
+`$queryCache` is excluded from `serialize(scope)` automatically.
+
 Only adapters that can enumerate entries (e.g. `inMemoryCache`) are dehydratable; web-storage
-adapters already persist themselves.
+adapters already persist themselves. Without `$queryCache` everything works as before — the
+per-query adapter is used (fine for a single-client app). Barriers remain global by design.
 
 ### Persisting on the client
 
@@ -67,7 +78,7 @@ Full runnable flow: [`examples/ssr.ts`](https://github.com/Olovyannikov/effector
 
 - Sourced config (`Store` for `concurrency` / `retry.times` / `cache.staleAfter` / `enabled`)
   is **fork-correct** — each scope sees its own value.
-- Cache adapters hold state outside the effector scope; for isolated SSR build queries
-  per request (as usual), or pass a fresh adapter.
+- Cache isolation for SSR: set `$queryCache` per fork (above). Without it, cache adapters
+  hold module-level state shared across scopes.
 - In-flight `AbortController`s are tracked per query _instance_; avoid sharing one query
   instance across concurrent SSR requests if you also call `cancel`.

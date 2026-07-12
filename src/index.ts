@@ -61,6 +61,7 @@ export {
   type CreateRequestFxOptions,
 } from './request';
 export {
+  $queryCache,
   inMemoryCache,
   localStorageCache,
   sessionStorageCache,

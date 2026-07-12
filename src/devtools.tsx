@@ -111,6 +111,8 @@ function QueryDetail({ name, query }: { name: string; query: AnyQuery }) {
     error: unknown;
     status: QueryStatus;
     pending: boolean;
+    isInitialLoading: boolean;
+    isRefetching: boolean;
     params: unknown;
   };
   const [log, setLog] = useState<QueryLogEntry[]>([]);
@@ -129,6 +131,12 @@ function QueryDetail({ name, query }: { name: string; query: AnyQuery }) {
         <Dot status={state.status} />
         <strong style={{ marginRight: 8 }}>{name}</strong>
         <span style={{ color: COLOR[state.status], fontSize: 12 }}>{state.status}</span>
+        {state.isInitialLoading && (
+          <span style={{ marginLeft: 8, color: COLOR.pending, fontSize: 12 }}>first load</span>
+        )}
+        {state.isRefetching && (
+          <span style={{ marginLeft: 8, color: COLOR.pending, fontSize: 12 }}>refetching ⟳</span>
+        )}
       </div>
       <Section title="Params">
         <pre style={preStyle}>{json(state.params)}</pre>

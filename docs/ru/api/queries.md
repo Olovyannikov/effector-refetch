@@ -39,6 +39,7 @@ const query = createQuery({
 `$isInitialLoading` — прогон без реальных данных (плейсхолдер не считается; `initialData` —
 считается) — показывайте скелетон; `$isRefetching` — прогон поверх имеющихся данных
 (refetch / поллинг / SWR-ревалидация) — данные видимы, спиннер в углу.
+Запускаемое демо: [`examples/loading-flags.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/loading-flags.ts).
 
 `query.prefetch(params)` прогревает кэш под `params` **без** изменения `$data`/`$status`
 (no-op без кэша, пропускает свежие записи) — например, префетч следующей страницы по hover.
@@ -95,6 +96,7 @@ cache(search, { staleAfter: 30_000, purge: loggedOut });
 - **`swr: true`** — отдать устаревшую запись сразу, ревалидировать в фоне (`$stale` переходит `true` → `false`).
 - **`dedupe: true`** — склеить одинаковые in-flight запросы (по ключу) в один прогон эффекта.
 - Адаптеры: `inMemoryCache({ maxAge?, maxEntries?, onHit?, onMiss?, onExpired?, onEvicted? })` (LRU GC + события), `localStorageCache({ version?, maxAge? })` / `sessionStorageCache(...)` (поднимите `version`, чтобы инвалидировать старые данные), `voidCache`.
+- **`$queryCache`** — scope-оверрайд адаптера: `fork({ values: [[$queryCache, inMemoryCache()]] })` даёт каждому query этого scope изолированный кэш (мультитенантный SSR). См. [SSR-рецепт](/ru/recipes/ssr-and-testing#изоляция-кэша-на-запрос-querycache).
 
 ## Маппинг параметров (`source` / `mapParams`)
 

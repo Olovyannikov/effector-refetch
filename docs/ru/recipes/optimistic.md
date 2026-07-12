@@ -37,6 +37,7 @@ addTodo.mutate({ text: 'Купить молоко' });
 
 Параллельные (`TAKE_EVERY`) мутации безопасны: у каждой свой слой, поэтому чужая ошибка не
 затрёт ни оптимистичное значение соседа, ни исходные данные.
+Запускаемое демо: [`examples/optimistic-parallel.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/optimistic-parallel.ts).
 
 ::: warning
 При settle не по порядку слои переприменяются в **порядке старта** — если `update`-функции

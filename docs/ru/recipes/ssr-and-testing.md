@@ -25,26 +25,37 @@ const serialized = serialize(scope); // effector serialize — $data / $status /
 Биндинги учитывают scope: React через `<Provider value={scope}>`, Vue через
 `EffectorScopePlugin({ scope })`.
 
-### Перенос кэша (`dehydrate` / `hydrate`)
+### Изоляция кэша на запрос (`$queryCache`)
 
-`serialize(scope)` сохраняет **состояние сторов**, но **кэш** запроса (dedupe / `staleAfter`)
-живёт вне scope и туда не попадает. `dehydrate` снимает его снапшот, `hydrate` восстанавливает на
-клиенте — и закэшированные параметры дают хит вместо перезапроса:
+По умолчанию адаптер кэша у query модульный — общий для всех scope. Для мультитенантного SSR
+задайте **`$queryCache`** на форк: каждый query этого scope читает/пишет изолированный адаптер,
+и параллельные запросы не видят данных друг друга:
 
 ```ts
-// сервер — рядом с serialize(scope)
+import { $queryCache, inMemoryCache, dehydrate, hydrate } from 'effector-refetch';
+
+// сервер — один адаптер на HTTP-запрос
 const cache = inMemoryCache();
-const todos = createQuery({ effect: fetchTodosFx, cache: { adapter: cache } });
-// … прогоняем запросы под scope …
+const scope = fork({ values: [[$queryCache, cache]] });
+await allSettled(todosQuery.start, { scope });
 const payload = { values: serialize(scope), cache: dehydrate(cache) };
 
 // клиент
-hydrate(cache, payload.cache); // греем кэш (storedAt сохраняется → staleAfter стареет корректно)
-const scope = fork({ values: payload.values }); // $data восстановлен — без мигания загрузки
+const clientCache = inMemoryCache();
+hydrate(clientCache, payload.cache); // storedAt сохраняется → staleAfter стареет корректно
+const clientScope = fork({ values: payload.values }); // $data восстановлен — без мигания загрузки
+await allSettled($queryCache, { scope: clientScope, params: clientCache }); // сторы вызываемы
+// закэшированные ключи теперь дают хит вместо перезапроса
 ```
 
+В общем scope-адаптере записи неймспейсятся по query: `name` ?? sid эффекта ?? счётчик
+создания. Давайте query стабильные **`name`** (или используйте effector babel/SWC-плагин
+для sid), если порядок инициализации модулей на сервере и клиенте может отличаться.
+`$queryCache` автоматически исключён из `serialize(scope)`.
+
 Дегидрируются только адаптеры, умеющие перечислять записи (например `inMemoryCache`); web-storage
-адаптеры персистят себя сами.
+адаптеры персистят себя сами. Без `$queryCache` всё работает как раньше — используется адаптер
+самого query (нормально для одно-клиентского приложения). Барьеры остаются глобальными по дизайну.
 
 ### Персист на клиенте
 
@@ -67,7 +78,7 @@ const scope = fork({ values: payload.values }); // $data восстановле�
 
 - Sourced-конфиг (`Store` для `concurrency` / `retry.times` / `cache.staleAfter` / `enabled`)
   **fork-корректен** — каждый scope видит своё значение.
-- Адаптеры кэша держат состояние вне scope effector; для изолированного SSR создавайте
-  запросы на каждый запрос (как обычно) или передавайте свежий адаптер.
+- Изоляция кэша для SSR — `$queryCache` на форк (выше). Без него адаптеры кэша держат
+  модульное состояние, общее для всех scope.
 - In-flight `AbortController`-ы отслеживаются на **инстанс** query; не шарьте один инстанс
   между конкурентными SSR-запросами, если ещё и вызываете `cancel`.
