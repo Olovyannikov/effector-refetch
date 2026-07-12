@@ -9,13 +9,13 @@ import { createEvent, sample, type Effect, type Event, type Store } from 'effect
  * `finished.*` / `aborted` events into the full `QueryInspect` object.
  */
 export interface IntrospectionContext<Params, Error> {
-  requested: Event<{ params: Params; fresh: boolean }>;
+  requested: Event<{ params: Params; mapped: unknown; fresh: boolean }>;
   // Done/Error generics are irrelevant here (used only as a clock for its params);
   // `any` avoids effector's invariant `use` check on the Effect's result type.
-  runFx: Effect<{ runId: number; params: Params; timeoutMs: number }, any, Error>;
+  runFx: Effect<{ runId: number; params: Params; mapped: unknown; timeoutMs: number }, any, Error>;
   cacheHit: Event<{ params: Params; result: unknown }>;
   lookupDone: Event<{ fresh: boolean; params: Params; entry: unknown }>;
-  scheduleRetry: Event<{ runId: number; params: Params; error: Error; timeoutMs: number }>;
+  scheduleRetry: Event<{ runId: number; params: Params; mapped: unknown; error: Error; timeoutMs: number }>;
   $attempts: Store<number>;
   evName: (suffix: string) => string | undefined;
 }

@@ -57,6 +57,35 @@ const $message = api.$error.map((e) =>
 **GraphQL** (POST `{ query, variables }` — см. [рецепт GraphQL](/ru/recipes/graphql)),
 или стриминг ([SSE и WebSocket](/ru/recipes/streaming)).
 
+### Композиция с `attach`
+
+Эффект из `createRequestFx` — **обычный `Effect<Params, Result>`**: пер-рановый
+`AbortSignal` попадает в хендлер через синхронный side-канал, а не внутри params. Поэтому
+его можно вызывать напрямую (`getUserFx({ id: 1 })` — вне прогона query отмены нет) и
+оборачивать в **голый `attach`** — маппинг параметров, инъекция сторов и настоящая отмена
+переживают обёртку:
+
+```ts
+import { attach, createStore } from 'effector';
+import { createRequestFx, createQuery } from 'effector-refetch';
+
+const $userId = createStore('user-123');
+
+const getPostsForUserFx = attach({
+  source: { userId: $userId }, // читается fork-корректно per scope
+  mapParams: (search: string, { userId }) => ({ search, userId, limit: 20 }),
+  effect: getPostsFx, // createRequestFx-эффект — отмена работает и через attach
+});
+
+const postsQuery = createQuery({ effect: getPostsForUserFx, cache: true });
+```
+
+Когда маппинг нужен одному конкретному query, инлайн-сахар
+[`createQuery({ source, mapParams })`](/ru/api/queries#маппинг-параметров-source-mapparams)
+делает то же без отдельного эффекта — и считает ключ кэша от **смапленных** params
+(при самодельном `attach` кэш видит только публичные params).
+Запускаемое демо: [`examples/map-params.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/map-params.ts).
+
 ## createJsonQuery
 
 Декларативный эндпоинт поверх глобального `fetch` (без зависимости от HTTP-клиента):

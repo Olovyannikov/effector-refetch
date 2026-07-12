@@ -1,6 +1,29 @@
 import { createEffect } from 'effector';
 import type { AbortableEffect } from './types';
 
+/**
+ * Side channel for the per-run AbortSignal. The engine sets it synchronously right
+ * before calling the effect and the `createRequestFx` handler consumes it on its
+ * first line — effector invokes handlers synchronously, so the signal survives ANY
+ * composition (`attach`, wrappers) because nothing rides inside the params.
+ */
+let pendingSignal: AbortSignal | null = null;
+
+/** @internal Engine seam: stage the AbortSignal for the next synchronous effect call. */
+export function provideAbortSignal(signal: AbortSignal): void {
+  pendingSignal = signal;
+}
+
+/** @internal Consume the staged AbortSignal (also used to clear it after the call). */
+export function takeAbortSignal(): AbortSignal | null {
+  const signal = pendingSignal;
+  pendingSignal = null;
+  return signal;
+}
+
+/** A never-aborted signal for direct calls outside a query run. */
+const NEVER_ABORTED = new AbortController().signal;
+
 export interface RequestContext {
   /**
    * AbortSignal for the request. Pass it to your HTTP client (ofetch/axios).
@@ -78,19 +101,23 @@ export interface CreateRequestFxOptions {
  *   );
  *   const userQuery = createQuery({ effect: getUserFx, cache: true });
  *
- * The resulting effect is a first-class effector unit — visible in devtools,
- * composable with `attach`, and usable as `createQuery({ effect })` /
- * `createMutation({ effect })`.
+ * The resulting effect is a first-class effector unit: visible in devtools, callable
+ * directly (`getUserFx({ id: 1 })` — no cancellation outside a query run), usable as
+ * `createQuery({ effect })` / `createMutation({ effect })` and composable with a plain
+ * `attach({ source, mapParams })` — the AbortSignal travels through a synchronous side
+ * channel, not inside the params, so an attach-wrapped effect stays truly cancellable.
  */
 export function createRequestFx<Params = void, Response = unknown>(
   handler: (params: Params, ctx: RequestContext) => Promise<Response> | Response,
   options: CreateRequestFxOptions = {},
 ): AbortableEffect<Params, Response, RequestError> {
   const { normalizeErrors = true, name } = options;
-  // The query supplies the AbortSignal per run, so cancellation is real.
-  const requestFx = createEffect<{ params: Params; signal: AbortSignal }, Response, RequestError>({
+  const requestFx = createEffect<Params, Response, RequestError>({
     name,
-    handler: async ({ params, signal }) => {
+    handler: async (params) => {
+      // consume the engine-staged signal BEFORE any await — effector calls handlers
+      // synchronously, which is what lets the signal survive attach/wrappers
+      const signal = takeAbortSignal() ?? NEVER_ABORTED;
       try {
         return await handler(params, { signal });
       } catch (err) {

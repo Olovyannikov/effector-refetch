@@ -58,6 +58,35 @@ It's just an effect, so anything works inside: multipart **FormData** uploads
 **GraphQL** (POST `{ query, variables }` — see the [GraphQL recipe](/recipes/graphql)),
 or streaming updates ([SSE & WebSocket](/recipes/streaming)).
 
+### Composing with `attach`
+
+A `createRequestFx` effect is a **regular `Effect<Params, Result>`**: the per-run
+`AbortSignal` reaches the handler through a synchronous side channel, not inside the
+params. So it can be called directly (`getUserFx({ id: 1 })` — no cancellation outside a
+query run) and wrapped in a **plain `attach`** — mapped params, injected stores, and real
+cancellation all survive:
+
+```ts
+import { attach, createStore } from 'effector';
+import { createRequestFx, createQuery } from 'effector-refetch';
+
+const $userId = createStore('user-123');
+
+const getPostsForUserFx = attach({
+  source: { userId: $userId }, // read fork-correctly per scope
+  mapParams: (search: string, { userId }) => ({ search, userId, limit: 20 }),
+  effect: getPostsFx, // a createRequestFx effect — stays cancellable through attach
+});
+
+const postsQuery = createQuery({ effect: getPostsForUserFx, cache: true });
+```
+
+When the mapping belongs to a single query, the inline
+[`createQuery({ source, mapParams })`](/api/queries#params-mapping-source-mapparams) sugar
+does the same without a separate effect — and keys the cache by the **mapped** params
+(with a hand-rolled `attach` the cache only sees the public params).
+Runnable demo: [`examples/map-params.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/map-params.ts).
+
 ## createJsonQuery
 
 Declarative endpoint over the global `fetch` (no HTTP-client dependency):

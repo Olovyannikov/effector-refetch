@@ -29,7 +29,9 @@ pnpm add effector-solid solid-js     # effector-refetch/solid
 ## Mental model (read first)
 
 - **Effect-first.** You bring an `Effect` (often built with `createRequestFx` or `attach`); the
-  query wraps it. `query.__.effect` is your original effect.
+  query wraps it. `query.__.effect` is your original effect. `createRequestFx` effects are
+  regular `Effect<Params, Result>` units — callable directly and composable with a plain
+  `attach` (the AbortSignal rides a synchronous side channel, so cancellation survives).
 - **Queries never auto-start.** Call `query.start(params)` / `refresh` / `refetch` yourself
   (in an effect, a `sample`, or a binding). The exception is `useSuspenseQuery`, which auto-starts.
 - **Fork-correct.** Everything is plain effector units — use `fork`/`allSettled` for SSR and tests.
@@ -105,7 +107,8 @@ const { $data, $pending } = combineQueries({ user: userQuery, todos: todosQuery 
 ```ts
 import { createRequestFx, createJsonQuery, RequestError } from 'effector-refetch';
 
-// Abortable effect ({ params, signal }); throws RequestError { status, data }.
+// Abortable effect — a regular Effect<Params, Result>, the AbortSignal arrives via a
+// synchronous side channel; throws RequestError { status, data }.
 const fetchUserFx = createRequestFx((id: number, { signal }) =>
   fetch(`/api/users/${id}`, { signal }).then((r) => r.json()),
 );
@@ -119,6 +122,32 @@ const userQuery = createJsonQuery({
 
 GraphQL = a `POST` with `{ query, variables }` wrapped in `createRequestFx` (turn GraphQL
 `errors` into a `RequestError`). FormData/SSE/WebSocket: it's just an effect — see docs recipes.
+
+## Params mapping (static params / app state in every request)
+
+```ts
+import { createQuery } from 'effector-refetch';
+
+// inline: map public params (+ fork-correct source stores) into the effect's params
+const postsQuery = createQuery({
+  effect: getPostsFx, // Effect<{ search: string; userId: string }, Post[]>
+  source: { userId: $userId },
+  mapParams: (search: string, { userId }) => ({ search, userId }),
+  cache: true, // cache key = MAPPED params (a source change never serves a stale user's entry)
+});
+postsQuery.start('effector'); // $params / finished.* keep the public params
+
+// a reusable mapped effect: plain attach — cancellation survives for createRequestFx effects
+const getPostsForUserFx = attach({
+  source: { userId: $userId },
+  mapParams: (search: string, { userId }) => ({ search, userId }),
+  effect: getPostsFx,
+});
+```
+
+`refetch`/polling re-read `source` at run time; `retry` reuses the mapping frozen at start.
+`mapParams` must be pure. Prefer inline when the mapping belongs to one query (it also keys
+the cache by the mapped params — a hand-rolled `attach` leaves the cache on public params).
 
 ## Caching
 

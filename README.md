@@ -86,6 +86,31 @@ characterQuery.start(1); // origin loads automatically when the character resolv
 - **`barrier`** — gate execution on a [barrier](#barriers-auth--offline) (e.g. pause during a token refresh).
 - **`contract` / `validate`** — [validate the response](#validation-contracts) before it hits the stores.
 - **`mapData` / `mapError`** — normalize result / error before they hit the stores.
+- **`source` / `mapParams`** — [map public params into the effect's params](#params-mapping-source--mapparams) before every run (the `attach` idiom, abort-safe).
+
+#### Params mapping (`source` / `mapParams`)
+
+Bake static params or app-wide state (a user id, a token) into every run, so callers pass
+only what varies — the `attach({ source, mapParams })` idiom as an inline option:
+
+```ts
+const $userId = createStore('user-123');
+
+const postsQuery = createQuery({
+  effect: getPostsFx, // Effect<{ search: string; userId: string; limit: number }, Post[]>
+  source: { userId: $userId }, // a Store or an object of Stores, read fork-correctly per scope
+  mapParams: (search: string, { userId }) => ({ search, userId, limit: 20 }),
+  cache: true, // keyed by the MAPPED params — a source change can't serve a stale user's entry
+});
+
+postsQuery.start('effector'); // the effect receives { search, userId, limit }
+```
+
+The public surface (`start` / `$params` / `finished.*`) keeps the public params; the effect —
+and the cache key — see the mapped ones. To reuse one mapped effect across queries, a plain
+`attach({ source, mapParams })` works too — `createRequestFx` effects stay truly cancellable
+through it (the AbortSignal travels via a synchronous side channel, not inside the params).
+Runnable demo: [`examples/map-params.ts`](./examples/map-params.ts).
 
 #### Sourced (reactive) config
 
@@ -261,6 +286,9 @@ cancelled — so ofetch/axios actually stop:
 
 Plain effects (without `createRequestFx`) keep the previous behavior — their
 stale results are simply ignored.
+
+`createRequestFx` effects are regular `Effect<Params, Result>` units: callable
+directly and composable with a plain `attach` — cancellation survives the wrapper.
 
 > SSR note: in-flight controllers are tracked per query _instance_ (a closure
 > `Set`), not per scope. For isolated SSR you already build per-request units, so

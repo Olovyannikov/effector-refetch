@@ -61,7 +61,7 @@ Be aware of these before switching:
 | unit of work         | internal event-based executor                                 | your real `Effect` — first-class                                                             |
 | API style            | operators                                                     | inline options **and** operators                                                             |
 | operators            | `retry`/`cache`/`concurrency`/`timeout`/`keepFresh`/`barrier` | same set — inline **and** standalone                                                         |
-| sourced config       | sourced **everything**                                        | HTTP fields (`url`/`query`/`body`/`headers`) + curated config                                |
+| sourced config       | sourced **everything**                                        | HTTP fields (`url`/`query`/`body`/`headers`) + curated config + `source`/`mapParams`         |
 | validation           | runtypes / io-ts / superstruct / typed-contracts / zod        | runtypes / io-ts / zod / Standard Schema / `@withease/contracts` (native) / `createContract` |
 | declarative HTTP     | `createJsonQuery` + `createJsonMutation`                      | `createJsonQuery` + `createJsonMutation` (over `createJsonRequestFx`)                        |
 | pagination           | —                                                             | `createInfiniteQuery` (bidirectional)                                                        |

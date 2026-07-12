@@ -63,7 +63,7 @@
 | единица работы        | внутренний event-исполнитель                                  | ваш реальный `Effect` — first-class                                                           |
 | стиль API             | операторы                                                     | inline-опции **и** операторы                                                                  |
 | операторы             | `retry`/`cache`/`concurrency`/`timeout`/`keepFresh`/`barrier` | тот же набор — inline **и** standalone                                                        |
-| sourced-конфиг        | sourced **всё**                                               | поля HTTP (`url`/`query`/`body`/`headers`) + выборочный конфиг                                |
+| sourced-конфиг        | sourced **всё**                                               | поля HTTP (`url`/`query`/`body`/`headers`) + выборочный конфиг + `source`/`mapParams`         |
 | валидация             | runtypes / io-ts / superstruct / typed-contracts / zod        | runtypes / io-ts / zod / Standard Schema / `@withease/contracts` (нативно) / `createContract` |
 | декларативный HTTP    | `createJsonQuery` + `createJsonMutation`                      | `createJsonQuery` + `createJsonMutation` (поверх `createJsonRequestFx`)                       |
 | пагинация             | —                                                             | `createInfiniteQuery` (двунаправленная)                                                       |

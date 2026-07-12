@@ -1,14 +1,36 @@
 import { is } from 'effector';
 import { createBaseQuery } from './base-query';
 import { cache, concurrency, retry } from './operators';
-import type { CreateQueryConfig, CreateQueryHandlerConfig, Query, SourcedConfig } from './types';
+import type {
+  CreateQueryConfig,
+  CreateQueryHandlerConfig,
+  CreateQueryMappedConfig,
+  Query,
+  QuerySource,
+  SourcedConfig,
+} from './types';
 
 /**
  * Build a query on top of a real effect, then apply the inline `concurrency` /
  * `retry` / `cache` options. Constants go through the standalone operators
  * (`concurrency()` / `retry()` / `cache()`); inline `Store` values are wired as
  * reactive, fork-correct sourced config.
+ *
+ * With `mapParams` (+ optional `source` stores, read fork-correctly), public
+ * params are mapped into the effect's params before every run — the
+ * `attach({ source, mapParams })` idiom that also works for abortable
+ * (`createRequestFx`) effects. The cache key is computed from the mapped params.
  */
+export function createQuery<
+  Params,
+  EffectParams,
+  Result,
+  Error = unknown,
+  Mapped = Result,
+  Src extends QuerySource | undefined = undefined,
+>(
+  config: CreateQueryMappedConfig<Params, EffectParams, Src, Result, Error, Mapped>,
+): Query<Params, Result, Error, Mapped>;
 export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
   config: CreateQueryConfig<Params, Result, Error, Mapped>,
 ): Query<Params, Result, Error, Mapped>;
@@ -18,7 +40,8 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
 export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
   config:
     | CreateQueryConfig<Params, Result, Error, Mapped>
-    | CreateQueryHandlerConfig<Params, Result, Error, Mapped>,
+    | CreateQueryHandlerConfig<Params, Result, Error, Mapped>
+    | CreateQueryMappedConfig<Params, unknown, QuerySource | undefined, Result, Error, Mapped>,
 ): Query<Params, Result, Error, Mapped> {
   const c = config.concurrency;
   const r = config.retry;
@@ -32,7 +55,11 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
   if (ca != null && typeof ca === 'object' && is.store(ca.staleAfter)) sourced.staleAfter = ca.staleAfter;
   if (is.store(to)) sourced.timeout = to;
 
-  const query = createBaseQuery<Params, Result, Error, Mapped>(config, sourced);
+  // the mapped-config extras (`source` / `mapParams`) are read loosely by the engine
+  const query = createBaseQuery<Params, Result, Error, Mapped>(
+    config as CreateQueryConfig<Params, Result, Error, Mapped>,
+    sourced,
+  );
 
   // constants via the standalone operators; sourced stores already wired above
   if (!is.store(c)) concurrency(query, { strategy: c ?? 'TAKE_LATEST' });

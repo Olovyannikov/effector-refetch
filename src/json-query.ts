@@ -1,5 +1,5 @@
-import { attach, createEffect, is, type Store } from 'effector';
-import { createRequestFx, RequestError, normalizeRequestError } from './request';
+import { attach, is, type Store } from 'effector';
+import { createRequestFx, RequestError } from './request';
 import { createQuery } from './create-query';
 import { createMutation } from './create-mutation';
 import type {
@@ -142,28 +142,15 @@ function buildRequestEffect<Params, Response>(
     return createRequestFx<Params, Response>((params, { signal }) => run(params, {}, signal), { name });
   }
 
-  // attach injects the scoped source values at call time → fork-correct
-  const baseFx = createEffect<
-    { params: Params; signal: AbortSignal; src: Record<string, unknown> },
-    Response,
-    RequestError
-  >({
-    name,
-    handler: async ({ params, signal, src }) => {
-      try {
-        return await run(params, src, signal);
-      } catch (err) {
-        throw normalizeRequestError(err);
-      }
-    },
-  });
+  // attach injects the scoped source values at call time → fork-correct; the
+  // AbortSignal flows through the side channel, so plain attach keeps cancellation
+  const baseFx = createRequestFx<{ params: Params; src: Record<string, unknown> }, Response>(
+    ({ params, src }, { signal }) => run(params, src, signal),
+    { name },
+  );
   const attachedFx = attach({
     source: sources,
-    mapParams: (p: { params: Params; signal: AbortSignal }, src: Record<string, unknown>) => ({
-      params: p.params,
-      signal: p.signal,
-      src,
-    }),
+    mapParams: (params: Params, src: Record<string, unknown>) => ({ params, src }),
     effect: baseFx,
   });
   return Object.assign(attachedFx, { __abortable: true as const }) as unknown as AbortableEffect<

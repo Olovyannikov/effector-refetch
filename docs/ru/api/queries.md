@@ -33,6 +33,7 @@ const query = createQuery({
 - **`structuralSharing`** — сохранять ссылочную идентичность неизменённых частей результата (меньше ре-рендеров).
 - **`placeholderData`** — значение или `(prev) => …`, показываемое, пока нет реальных данных; `$isPlaceholderData` равно `true` до первого реального результата. В отличие от `initialData`, не считается закэшированным.
 - **`mapData` / `mapError`** — нормализация результата / ошибки перед сторами.
+- **`source` / `mapParams`** — маппинг публичных params (+ значений сторов из `source`, читаются fork-корректно) в параметры эффекта перед каждым прогоном (см. [Маппинг параметров](#маппинг-параметров-source-mapparams)).
 
 `query.prefetch(params)` прогревает кэш под `params` **без** изменения `$data`/`$status`
 (no-op без кэша, пропускает свежие записи) — например, префетч следующей страницы по hover.
@@ -89,6 +90,35 @@ cache(search, { staleAfter: 30_000, purge: loggedOut });
 - **`swr: true`** — отдать устаревшую запись сразу, ревалидировать в фоне (`$stale` переходит `true` → `false`).
 - **`dedupe: true`** — склеить одинаковые in-flight запросы (по ключу) в один прогон эффекта.
 - Адаптеры: `inMemoryCache({ maxAge?, maxEntries?, onHit?, onMiss?, onExpired?, onEvicted? })` (LRU GC + события), `localStorageCache({ version?, maxAge? })` / `sessionStorageCache(...)` (поднимите `version`, чтобы инвалидировать старые данные), `voidCache`.
+
+## Маппинг параметров (`source` / `mapParams`)
+
+Идиома `attach({ source, mapParams })` как инлайн-опция — «запеките» статические параметры
+или общее состояние приложения (id пользователя, токен) в каждый прогон, чтобы вызывающий код
+передавал только то, что меняется. [Голый `attach` тоже работает](/ru/api/http#композиция-с-attach)
+(включая настоящую отмену); инлайн-опция вдобавок считает ключ **кэша** от смапленных params
+и экономит отдельное объявление эффекта:
+
+```ts
+const $userId = createStore('user-123');
+
+const postsQuery = createQuery({
+  effect: getPostsFx, // Effect<{ search: string; userId: string; limit: number }, Post[]>
+  source: { userId: $userId }, // Store или объект Store'ов, читаются fork-корректно
+  mapParams: (search: string, { userId }) => ({ search, userId, limit: 20 }),
+  cache: true,
+});
+
+postsQuery.start('effector'); // эффект получит { search, userId, limit }
+```
+
+- **Публичная поверхность** query (`start` / `$params` / `finished.*` / ctx у `mapData`)
+  оперирует публичными params (`'effector'`); эффект видит смапленные.
+- **Ключ кэша** (и `cache.key`) считается от **смапленных** params — смена `source` даёт другой
+  ключ, поэтому другому пользователю никогда не отдастся запись предыдущего.
+- `refetch` / поллинг / `keepFresh` перечитывают `source` на момент прогона; `retry` повторяет
+  прогон с маппингом, зафиксированным на старте (ретрай — это тот же запрос).
+- `mapParams` должен быть **чистым** — он выполняется внутри `fn` у sample.
 
 ## Реактивный (sourced) конфиг
 

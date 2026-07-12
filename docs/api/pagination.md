@@ -57,9 +57,9 @@ const { $data, $pending, $isSuccess, $isError, $statuses, $errors } = combineQue
 Start the queries as usual; `combineQueries` just reads their combined state.
 
 ::: tip
-The page effect is a plain `Effect<{ params, pageParam }, Page>` — use a regular
-`createEffect`/`handler`, not an abort-aware `createRequestFx` effect (which has a
-different `{ params, signal }` calling convention).
+The page effect is an `Effect<{ params, pageParam }, Page>` — a regular
+`createEffect`/`handler` or an abort-aware `createRequestFx` effect (the AbortSignal
+reaches it through a synchronous side channel, so page fetches stay cancellable).
 :::
 
 Built on `createQuery`, so the page fetch inherits concurrency and cancellation.

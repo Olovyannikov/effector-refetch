@@ -57,9 +57,9 @@ const { $data, $pending, $isSuccess, $isError, $statuses, $errors } = combineQue
 Запускайте запросы как обычно; `combineQueries` лишь читает их общее состояние.
 
 ::: tip
-Эффект страницы — обычный `Effect<{ params, pageParam }, Page>` — используйте обычный
-`createEffect`/`handler`, а не abort-aware `createRequestFx` (у него другое соглашение вызова
-`{ params, signal }`).
+Эффект страницы — `Effect<{ params, pageParam }, Page>`: обычный `createEffect`/`handler`
+или abort-aware `createRequestFx`-эффект (AbortSignal доходит до него через синхронный
+side-канал, так что загрузка страниц остаётся отменяемой).
 :::
 
 Построено на `createQuery`, поэтому загрузка страницы наследует concurrency и отмену.

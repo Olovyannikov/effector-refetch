@@ -33,6 +33,7 @@ const query = createQuery({
 - **`structuralSharing`** — preserve referential identity of unchanged parts of the result (fewer re-renders).
 - **`placeholderData`** — a value or `(prev) => …` shown while there's no real data; `$isPlaceholderData` is `true` until the first real result. Unlike `initialData`, it's not treated as cached.
 - **`mapData` / `mapError`** — normalize result / error before the stores.
+- **`source` / `mapParams`** — map public params (+ `source` store values, read fork-correctly) into the effect's params before every run (see [Params mapping](#params-mapping-source-mapparams)).
 
 `query.prefetch(params)` warms the cache for `params` **without** touching `$data`/`$status`
 (no-op without a cache, skips when already fresh) — e.g. prefetch the next page on hover.
@@ -89,6 +90,35 @@ timeout(search, 5000); // abort + fail a run that takes over 5s
 - **`swr: true`** — serve a stale entry immediately, revalidate in the background (`$stale` flips `true` → `false`).
 - **`dedupe: true`** — coalesce identical in-flight requests (by key) into one effect run.
 - Adapters: `inMemoryCache({ maxAge?, maxEntries?, onHit?, onMiss?, onExpired?, onEvicted? })` (LRU GC + events), `localStorageCache({ version?, maxAge? })` / `sessionStorageCache(...)` (bump `version` to invalidate old data), `voidCache`.
+
+## Params mapping (`source` / `mapParams`)
+
+The `attach({ source, mapParams })` idiom as an inline option — bake static params or
+app-wide state (a user id, a token) into every run, so callers pass only what varies.
+A [plain `attach` works too](/api/http#composing-with-attach) (abort-awareness included);
+the inline option additionally keys the **cache** by the mapped params and saves you a
+separate effect declaration:
+
+```ts
+const $userId = createStore('user-123');
+
+const postsQuery = createQuery({
+  effect: getPostsFx, // Effect<{ search: string; userId: string; limit: number }, Post[]>
+  source: { userId: $userId }, // a Store or an object of Stores, read fork-correctly
+  mapParams: (search: string, { userId }) => ({ search, userId, limit: 20 }),
+  cache: true,
+});
+
+postsQuery.start('effector'); // the effect receives { search, userId, limit }
+```
+
+- The query's **public surface** (`start` / `$params` / `finished.*` / `mapData` ctx) keeps the
+  public params (`'effector'`); the effect sees the mapped ones.
+- The **cache key** (and `cache.key`) is computed from the **mapped** params — a `source`
+  change is a different key, so another user can never be served the previous user's entry.
+- `refetch` / polling / `keepFresh` re-read the `source` at run time; `retry` re-runs with the
+  mapping frozen at start time (a retry is the same request).
+- `mapParams` must be **pure** — it runs inside a sample `fn`.
 
 ## Sourced (reactive) config
 

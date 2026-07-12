@@ -7,20 +7,30 @@ export type QueryStatus = 'initial' | 'pending' | 'done' | 'fail';
 export type ConcurrencyStrategy = 'TAKE_LATEST' | 'TAKE_FIRST' | 'TAKE_EVERY';
 
 /**
- * An abort-aware effect: receives `{ params, signal }` so the query can really
- * cancel the in-flight request (via AbortController) on cancel/reset/supersede.
- * Produced by `createRequestFx`.
+ * An abort-aware effect produced by `createRequestFx` / `createJsonRequestFx`. It is a
+ * regular `Effect<Params, Result>` — the per-run AbortSignal reaches the handler through
+ * a synchronous side channel, not through the params — so it can be called directly and
+ * composed with a plain `attach` without losing real cancellation.
  */
-export type AbortableEffect<Params, Result, Fail = unknown> = Effect<
-  { params: Params; signal: AbortSignal },
-  Result,
-  Fail
-> & { readonly __abortable: true };
+export type AbortableEffect<Params, Result, Fail = unknown> = Effect<Params, Result, Fail> & {
+  readonly __abortable: true;
+};
 
 /** Either a plain effect or an abort-aware one. */
 export type QueryEffect<Params, Result, Fail> =
   | Effect<Params, Result, Fail>
   | AbortableEffect<Params, Result, Fail>;
+
+/** A `Store` or an object of stores injected into `mapParams` at call time (like `attach`'s `source`). */
+export type QuerySource = Store<unknown> | Record<string, Store<unknown>>;
+
+/** The value `mapParams` receives for a given {@link QuerySource} shape. */
+export type QuerySourceValue<S> =
+  S extends Store<infer V>
+    ? V
+    : S extends Record<string, Store<unknown>>
+      ? { [K in keyof S]: S[K] extends Store<infer V> ? V : never }
+      : undefined;
 
 /** Function computing the pause (ms) before retry attempt N (1-based). */
 export type DelayFn = (attempt: number) => number;
@@ -120,6 +130,33 @@ export interface CreateQueryHandlerConfig<Params, Result, Error, Mapped = Result
   'effect'
 > {
   handler: (params: Params) => Promise<Result> | Result;
+}
+
+/**
+ * `createQuery` with params mapping: `start(params)` (+ optional `source` store
+ * values, read fork-correctly per scope) is mapped into the effect's params
+ * before every run — the `attach({ source, mapParams })` idiom as an inline
+ * option, working for abortable (`createRequestFx`) effects too.
+ *
+ * The query's public params (`start` / `$params` / `finished.*` / `mapData` ctx)
+ * stay as given; the effect — and the **cache key** — see the mapped params.
+ * `mapParams` must be pure (it runs inside a sample `fn`).
+ */
+export interface CreateQueryMappedConfig<
+  Params,
+  EffectParams,
+  Src extends QuerySource | undefined,
+  Result,
+  Error,
+  Mapped = Result,
+> extends Omit<CreateQueryConfig<Params, Result, Error, Mapped>, 'effect' | 'cache'> {
+  effect: QueryEffect<EffectParams, Result, Error>;
+  /** Cache key is computed from the *mapped* (effect-level) params. */
+  cache?: boolean | CacheConfig<EffectParams>;
+  /** Stores injected into `mapParams` at call time — read fork-correctly per scope. */
+  source?: Src;
+  /** Pure mapping of public params (+ `source` values) into the effect's params. */
+  mapParams: (params: Params, source: QuerySourceValue<Src>) => EffectParams;
 }
 
 /** Resolved retry config the engine reads at runtime (operators produce it). */
@@ -231,7 +268,7 @@ export interface Query<Params, Result, Error, Mapped = Result> {
   /** Escape hatch — "based on real effects" — plus engine seams used by operators. */
   __: {
     effect: QueryEffect<Params, Result, Error>;
-    runFx: Effect<{ runId: number; params: Params; timeoutMs: number }, any, Error>;
+    runFx: Effect<{ runId: number; params: Params; mapped: unknown; timeoutMs: number }, any, Error>;
     inspect: QueryInspect<Params, Mapped, Error>;
     /** Imperative write to `$data` (see `setQueryData`). */
     setData: EventCallable<Mapped | null>;
@@ -315,7 +352,7 @@ export interface Mutation<Params, Result, Error, Mapped = Result> {
 
   __: {
     effect: QueryEffect<Params, Result, Error>;
-    runFx: Effect<{ runId: number; params: Params; timeoutMs: number }, any, Error>;
+    runFx: Effect<{ runId: number; params: Params; mapped: unknown; timeoutMs: number }, any, Error>;
   };
 
   '@@unitShape': () => MutationUnitShape<Params, Mapped, Error>;
