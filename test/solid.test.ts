@@ -27,6 +27,8 @@ describe('useQuery — Solid binding', () => {
           expect(q.isInitial()).toBe(true);
           expect(q.data()).toBe(null);
           expect(q.pending()).toBe(false);
+          expect(q.isInitialLoading()).toBe(false);
+          expect(q.isRefetching()).toBe(false);
 
           // start -> pending -> done, accessors track it
           q.start(3);
@@ -37,6 +39,8 @@ describe('useQuery — Solid binding', () => {
           expect(q.isPending()).toBe(false);
           expect(q.data()).toBe('user-3');
           expect(q.params()).toBe(3);
+          expect(q.isInitialLoading()).toBe(false);
+          expect(q.isRefetching()).toBe(false);
 
           dispose();
           resolve();

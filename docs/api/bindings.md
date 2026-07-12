@@ -21,8 +21,9 @@ const { data, pending, refetch } = useUnit(userQuery);
 </script>
 ```
 
-`useUnit(query)` yields `{ data, error, status, pending, stale, enabled, params, start,
-refetch, refresh, reset, cancel }`.
+`useUnit(query)` yields `{ data, error, status, pending, isInitialLoading, isRefetching,
+stale, enabled, params, start, refetch, refresh, reset, cancel }`. `isInitialLoading` is a
+run with no real data yet (skeleton); `isRefetching` — a run over existing data (spinner).
 
 ## useQuery helpers
 

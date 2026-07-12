@@ -226,6 +226,8 @@ export type QueryUnitShape<Params, Mapped, Error> = {
   error: Store<Error | null>;
   status: Store<QueryStatus>;
   pending: Store<boolean>;
+  isInitialLoading: Store<boolean>;
+  isRefetching: Store<boolean>;
   stale: Store<boolean>;
   enabled: Store<boolean>;
   params: Store<Params | null>;
@@ -254,6 +256,10 @@ export interface Query<Params, Result, Error, Mapped = Result> {
   $error: Store<Error | null>;
   $status: Store<QueryStatus>;
   $pending: Store<boolean>;
+  /** A run is in flight and there's no real data yet (placeholder doesn't count) — show a skeleton. */
+  $isInitialLoading: Store<boolean>;
+  /** A run is in flight over existing real data (refetch / polling / SWR) — show data + a corner spinner. */
+  $isRefetching: Store<boolean>;
   $stale: Store<boolean>;
   /** True while `$data` is the configured placeholder (no real result yet). */
   $isPlaceholderData: Store<boolean>;

@@ -35,6 +35,11 @@ const query = createQuery({
 - **`mapData` / `mapError`** — normalize result / error before the stores.
 - **`source` / `mapParams`** — map public params (+ `source` store values, read fork-correctly) into the effect's params before every run (see [Params mapping](#params-mapping-source-mapparams)).
 
+`$pending` is true for **any** in-flight run. To tell a first load from a background
+refetch: `$isInitialLoading` — in flight with no real data yet (placeholder doesn't count;
+`initialData` does) — show a skeleton; `$isRefetching` — in flight over existing data
+(refetch / polling / SWR revalidation) — keep the data visible, show a corner spinner.
+
 `query.prefetch(params)` warms the cache for `params` **without** touching `$data`/`$status`
 (no-op without a cache, skips when already fresh) — e.g. prefetch the next page on hover.
 

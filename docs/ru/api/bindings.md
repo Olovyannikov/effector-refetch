@@ -21,8 +21,9 @@ const { data, pending, refetch } = useUnit(userQuery);
 </script>
 ```
 
-`useUnit(query)` отдаёт `{ data, error, status, pending, stale, enabled, params, start,
-refetch, refresh, reset, cancel }`.
+`useUnit(query)` отдаёт `{ data, error, status, pending, isInitialLoading, isRefetching,
+stale, enabled, params, start, refetch, refresh, reset, cancel }`. `isInitialLoading` — прогон
+без реальных данных (скелетон); `isRefetching` — прогон поверх имеющихся данных (спиннер).
 
 ## Хелперы useQuery
 
