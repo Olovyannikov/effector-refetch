@@ -53,6 +53,68 @@ describe('attachQueryLogger', () => {
     expect(entries.some((e) => e.type === 'cache-hit')).toBe(true);
   });
 
+  it('computes durations per run under concurrent (TAKE_EVERY) runs', async () => {
+    const entries: QueryLogEntry[] = [];
+    let t = 0;
+    const resolvers = new Map<string, (v: string) => void>();
+    const fx = createEffect((key: string) => new Promise<string>((res) => resolvers.set(key, res)));
+    const query = createQuery({ effect: fx, concurrency: 'TAKE_EVERY' });
+    attachQueryLogger(query, { name: 'q', handler: (e) => entries.push(e), now: () => t });
+
+    const scope = fork();
+    t = 100;
+    const pa = allSettled(query.start, { scope, params: 'a' }); // run a @ 100
+    t = 200;
+    const pb = allSettled(query.start, { scope, params: 'b' }); // run b @ 200
+
+    t = 300;
+    resolvers.get('a')!('a'); // done a @ 300
+    await new Promise((r) => setTimeout(r, 0)); // let done-a log (allSettled waits for the whole scope)
+    t = 500;
+    resolvers.get('b')!('b'); // done b @ 500
+    await Promise.all([pa, pb]);
+
+    const doneA = entries.find((e) => e.type === 'done' && e.params === 'a');
+    const doneB = entries.find((e) => e.type === 'done' && e.params === 'b');
+    expect(doneA?.durationMs).toBe(200); // from run a's own timestamp, not run b's
+    expect(doneB?.durationMs).toBe(300);
+  });
+
+  it('duration on retry is measured from the last run', async () => {
+    const entries: QueryLogEntry[] = [];
+    let t = 0;
+    const now = () => (t += 100); // run1 -> 100, run2 -> 200, done -> 300
+    let calls = 0;
+    const fx = createEffect(async () => {
+      calls++;
+      if (calls === 1) throw new Error('flaky');
+      return calls;
+    });
+    const query = createQuery({ effect: fx, retry: { times: 2, delay: 0 } });
+    attachQueryLogger(query, { name: 'q', handler: (e) => entries.push(e), now });
+
+    const scope = fork();
+    await allSettled(query.start, { scope });
+
+    const done = entries.find((e) => e.type === 'done');
+    expect(done?.durationMs).toBe(100); // 300 - 200 (the retry run), not 300 - 100
+  });
+
+  it('scope option isolates the log to that fork', async () => {
+    const entries: QueryLogEntry[] = [];
+    const fx = createEffect(async (n: number) => n);
+    const query = createQuery({ effect: fx });
+    const scopeA = fork();
+    const scopeB = fork();
+    attachQueryLogger(query, { handler: (e) => entries.push(e), scope: scopeA });
+
+    await allSettled(query.start, { scope: scopeA, params: 1 });
+    await allSettled(query.start, { scope: scopeB, params: 2 });
+
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((e) => e.params === 1)).toBe(true); // nothing from scope B
+  });
+
   it('unsubscribe stops logging', async () => {
     const entries: QueryLogEntry[] = [];
     const fx = createEffect(async (n: number) => n);

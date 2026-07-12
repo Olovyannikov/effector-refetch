@@ -45,3 +45,9 @@ stop(); // unsubscribe
 
 Pass a custom `handler` to forward entries into your own logger or the effector
 inspector. Entry types: `start | run | done | fail | aborted | cache-hit | cache-miss | retry`.
+
+Options: `name`, `handler`, `now` (clock override for tests) and `scope` — pass a fork to
+observe **only that scope's** events; without it the logger is global (every scope plus the
+scope-less app in one log). `durationMs` is measured from the last `run` with the same params
+(so concurrent `TAKE_EVERY` runs with different params are timed independently, and a retry
+restarts its own clock).

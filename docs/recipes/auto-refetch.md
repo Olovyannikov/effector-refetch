@@ -31,9 +31,10 @@ const stop2 = refetchOnReconnect(userQuery);
 // call stop1() / stop2() to detach
 ```
 
-Both refetch with the query's last params, only if it has run and is enabled. They read
-the no-scope store, so they're meant for a single-client app; for scoped apps, drive
-`query.refetch` yourself with `scopeBind`.
+Both refetch with the query's last params, only if it has run and is enabled. Without a
+scope they read the no-scope store (single-client app); pass a `scope` as the second
+argument to run the trigger fork-correctly. Safe to call on every component mount — the
+effector wiring is created once per query, unsubscribe removes only the DOM listener.
 
 ## Offline / network mode
 

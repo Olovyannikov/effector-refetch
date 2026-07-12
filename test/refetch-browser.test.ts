@@ -73,6 +73,38 @@ describe('refetchOnWindowFocus / refetchOnReconnect (no-scope)', () => {
     expect(query.$status.getState()).toBe('initial'); // global store untouched
   });
 
+  it('re-subscribing does not grow the effector graph (wiring is one per query+event)', () => {
+    const query = createQuery({ effect: createEffect(async (id: number) => id) });
+    // the wiring is created lazily on the first subscribe — measure after one full cycle
+    refetchOnWindowFocus(query)();
+    const links = () =>
+      (query.$params as unknown as { graphite: { family: { links: unknown[] } } }).graphite.family.links
+        .length;
+    const before = links();
+    for (let i = 0; i < 5; i++) refetchOnWindowFocus(query)();
+    expect(links()).toBe(before);
+  });
+
+  it('refetches exactly once after unsubscribe/resubscribe cycles', async () => {
+    let calls = 0;
+    const query = createQuery({
+      effect: createEffect(async (id: number) => {
+        calls++;
+        return id;
+      }),
+    });
+    for (let i = 0; i < 3; i++) refetchOnWindowFocus(query)(); // subscribe + immediately unsubscribe
+    teardowns.push(refetchOnWindowFocus(query));
+
+    query.start(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(1);
+
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(2); // one active listener -> one refetch
+  });
+
   it('unsubscribe stops listening', async () => {
     let calls = 0;
     const query = createQuery({
