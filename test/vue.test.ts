@@ -61,21 +61,22 @@ describe('useUnit(query) — Vue binding', () => {
 
     const Comp = defineComponent({
       setup() {
-        const { data, isInitial, isPending, isDone } = useQuery(query);
-        return { data, isInitial, isPending, isDone };
+        const { data, isInitial, isPending, isDone, isInitialLoading, isRefetching } = useQuery(query);
+        return { data, isInitial, isPending, isDone, isInitialLoading, isRefetching };
       },
       render() {
         const flag = this.isInitial ? 'initial' : this.isDone ? 'done' : this.isPending ? 'pending' : '?';
-        return h('span', `${flag}:${this.data ?? 'null'}`);
+        const load = this.isInitialLoading ? 'first' : this.isRefetching ? 'refetch' : 'idle';
+        return h('span', `${flag}:${this.data ?? 'null'}:${load}`);
       },
     });
 
     const scope = fork();
     const wrapper = mountWithScope(Comp, scope);
-    expect(wrapper.text()).toBe('initial:null');
+    expect(wrapper.text()).toBe('initial:null:idle');
 
     await allSettled(query.start, { scope, params: 3 });
     await nextTick();
-    expect(wrapper.text()).toBe('done:user-3');
+    expect(wrapper.text()).toBe('done:user-3:idle');
   });
 });

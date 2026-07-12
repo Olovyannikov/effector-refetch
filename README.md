@@ -60,6 +60,8 @@ characterQuery.start(1); // origin loads automatically when the character resolv
 | `$error`                       | `Store<Error \| null>`                        | latest error                                                               |
 | `$status`                      | `Store<'initial'\|'pending'\|'done'\|'fail'>` |                                                                            |
 | `$pending`                     | `Store<boolean>`                              | request (or retry) in flight                                               |
+| `$isInitialLoading`            | `Store<boolean>`                              | in flight with no real data yet — show a skeleton                          |
+| `$isRefetching`                | `Store<boolean>`                              | in flight over existing data (refetch / polling) — show a corner spinner   |
 | `$stale`                       | `Store<boolean>`                              | current data is past `staleAfter`                                          |
 | `$enabled`                     | `Store<boolean>`                              | gate                                                                       |
 | `$params`                      | `Store<Params \| null>`                       | last params the query ran with                                             |

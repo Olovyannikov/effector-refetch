@@ -14,11 +14,13 @@ describe('useQuery (React binding)', () => {
     const query = createQuery({ effect: fx });
 
     function View() {
-      const { data, status, isPending } = useQuery(query);
+      const { data, status, isPending, isInitialLoading, isRefetching } = useQuery(query);
+      const load = isInitialLoading ? 'first' : isRefetching ? 'refetch' : 'idle';
       return (
         <div>
           <span data-testid="status">{isPending ? 'pending' : status}</span>
           <span data-testid="data">{data ?? 'null'}</span>
+          <span data-testid="load">{load}</span>
         </div>
       );
     }

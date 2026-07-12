@@ -9,6 +9,10 @@ export interface UseQuerySolidResult<Params, Mapped, Error> {
   error: Accessor<Error | null>;
   status: Accessor<QueryStatus>;
   pending: Accessor<boolean>;
+  /** A run is in flight and there's no real data yet — show a skeleton. */
+  isInitialLoading: Accessor<boolean>;
+  /** A run is in flight over existing data (refetch / polling) — show data + a spinner. */
+  isRefetching: Accessor<boolean>;
   stale: Accessor<boolean>;
   enabled: Accessor<boolean>;
   params: Accessor<Params | null>;
@@ -43,6 +47,8 @@ export function useQuery<Params, Result, Error, Mapped>(
     error: query.$error,
     status: query.$status,
     pending: query.$pending,
+    isInitialLoading: query.$isInitialLoading,
+    isRefetching: query.$isRefetching,
     stale: query.$stale,
     enabled: query.$enabled,
     params: query.$params,
@@ -68,6 +74,8 @@ export function useQuery<Params, Result, Error, Mapped>(
     error: state.error,
     status: state.status,
     pending: state.pending,
+    isInitialLoading: state.isInitialLoading,
+    isRefetching: state.isRefetching,
     stale: state.stale,
     enabled: state.enabled,
     params: state.params,

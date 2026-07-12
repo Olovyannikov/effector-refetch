@@ -690,6 +690,15 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     .on(invalidate, () => false);
   const $pending = combine($inflight, $retrying, (p, r) => p || r);
 
+  // first load vs background refetch: a placeholder is not real data, initialData is
+  const $isInitialLoading = combine(
+    $pending,
+    $data,
+    $isPlaceholderData,
+    (pending, data, placeholder) => pending && (data === null || placeholder),
+  );
+  const $isRefetching = combine($pending, $isInitialLoading, (p, initial) => p && !initial);
+
   // ---- finished / lifecycle wiring ----
   sample({
     clock: acceptedDone,
@@ -759,6 +768,8 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     $error,
     $status,
     $pending,
+    $isInitialLoading,
+    $isRefetching,
     $stale,
     $isPlaceholderData,
     $enabled,
@@ -832,6 +843,8 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       error: $error,
       status: $status,
       pending: $pending,
+      isInitialLoading: $isInitialLoading,
+      isRefetching: $isRefetching,
       stale: $stale,
       enabled: $enabled,
       params: $params,

@@ -12,6 +12,10 @@ export interface UseQueryResult<Params, Mapped, Error> {
   error: Error | null;
   status: QueryStatus;
   pending: boolean;
+  /** A run is in flight and there's no real data yet — show a skeleton. */
+  isInitialLoading: boolean;
+  /** A run is in flight over existing data (refetch / polling) — show data + a spinner. */
+  isRefetching: boolean;
   stale: boolean;
   enabled: boolean;
   params: Params | null;
@@ -44,6 +48,8 @@ export function useQuery<Params, Result, Error, Mapped>(
     error: query.$error,
     status: query.$status,
     pending: query.$pending,
+    isInitialLoading: query.$isInitialLoading,
+    isRefetching: query.$isRefetching,
     stale: query.$stale,
     enabled: query.$enabled,
     params: query.$params,

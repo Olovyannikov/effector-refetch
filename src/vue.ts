@@ -9,6 +9,10 @@ export interface UseQueryVueResult<Params, Mapped, Error> {
   error: Ref<Error | null>;
   status: Ref<QueryStatus>;
   pending: Ref<boolean>;
+  /** A run is in flight and there's no real data yet — show a skeleton. */
+  isInitialLoading: Ref<boolean>;
+  /** A run is in flight over existing data (refetch / polling) — show data + a spinner. */
+  isRefetching: Ref<boolean>;
   stale: Ref<boolean>;
   enabled: Ref<boolean>;
   params: Ref<Params | null>;
@@ -36,6 +40,8 @@ export function useQuery<Params, Result, Error, Mapped>(
     error: Ref<Error | null>;
     status: Ref<QueryStatus>;
     pending: Ref<boolean>;
+    isInitialLoading: Ref<boolean>;
+    isRefetching: Ref<boolean>;
     stale: Ref<boolean>;
     enabled: Ref<boolean>;
     params: Ref<Params | null>;
@@ -58,6 +64,8 @@ export function useQuery<Params, Result, Error, Mapped>(
     error: u.error,
     status: u.status,
     pending: u.pending,
+    isInitialLoading: u.isInitialLoading,
+    isRefetching: u.isRefetching,
     stale: u.stale,
     enabled: u.enabled,
     params: u.params,
