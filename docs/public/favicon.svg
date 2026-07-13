@@ -7,6 +7,6 @@
   </defs>
   <circle cx="128" cy="128" r="72" stroke="url(#er)" stroke-width="27" stroke-linecap="round"
           stroke-dasharray="377 75.4" transform="rotate(-60 128 128)"/>
-  <path d="M116.25 51.65 L97.9 81.87 L80.9 52.43 Z" fill="url(#er)"/>
+  <path d="M117.98 50.65 L101.77 86.57 L78.77 46.73 Z" fill="url(#er)"/>
   <circle cx="128" cy="128" r="26" fill="url(#er)"/>
 </svg>
