@@ -345,7 +345,8 @@ feed.fetchNext(); // appends; no-op when $hasNextPage is false or already loadin
 feed.refetchAll(); // re-fetches every accumulated page, keeping the window
 ```
 
-Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$status`, `$pending`,
+Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`, `$status`, `$pending`,
+`$isInitialLoading` / `$isFetchingNextPage` / `$isFetchingPreviousPage` / `$isRefetching`,
 `$error`, `finished.{done,fail}`, and `useUnit(feed)` support. Built on `createQuery`,
 so the page fetch inherits concurrency / cancellation. Runnable demo:
 [`examples/infinite-query.ts`](./examples/infinite-query.ts).

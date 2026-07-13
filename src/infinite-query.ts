@@ -78,6 +78,14 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
   $hasPreviousPage: Store<boolean>;
   $status: Store<QueryStatus>;
   $pending: Store<boolean>;
+  /** A run is in flight with no pages accumulated yet — show a skeleton. */
+  $isInitialLoading: Store<boolean>;
+  /** The next page is loading (`fetchNext`). */
+  $isFetchingNextPage: Store<boolean>;
+  /** The previous page is loading (`fetchPrevious`). */
+  $isFetchingPreviousPage: Store<boolean>;
+  /** `refetchAll` is reloading the window over the visible pages. */
+  $isRefetching: Store<boolean>;
   $error: Store<Error | null>;
   $params: Store<Params | null>;
 
@@ -96,6 +104,10 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
     hasPreviousPage: Store<boolean>;
     status: Store<QueryStatus>;
     pending: Store<boolean>;
+    isInitialLoading: Store<boolean>;
+    isFetchingNextPage: Store<boolean>;
+    isFetchingPreviousPage: Store<boolean>;
+    isRefetching: Store<boolean>;
     error: Store<Error | null>;
     start: EventCallable<Params>;
     fetchNext: EventCallable<void>;
@@ -264,6 +276,14 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   const $hasPreviousPage = $infinite.map((s) => s.hasPreviousPage);
   const $pending = combine(pageQuery.$pending, refetchAllFx.pending, (page, all) => page || all);
 
+  // loading flavors: first load (no pages on screen) vs an end of the list vs a window reload
+  const $isInitialLoading = combine($pending, $pages, (pending, pages) => pending && pages.length === 0);
+  const modeLoading = (mode: PageReq<Params, PageParam>['mode']) =>
+    combine(pageQuery.$pending, pageQuery.$params, (pending, req) => pending && req?.mode === mode);
+  const $isFetchingNextPage = modeLoading('append');
+  const $isFetchingPreviousPage = modeLoading('prepend');
+  const $isRefetching = refetchAllFx.pending;
+
   // launch the refetch over the stored pageParams (no-op while busy or with no pages)
   sample({
     clock: refetchAll,
@@ -362,6 +382,10 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     $hasPreviousPage,
     $status: pageQuery.$status,
     $pending,
+    $isInitialLoading,
+    $isFetchingNextPage,
+    $isFetchingPreviousPage,
+    $isRefetching,
     $error: pageQuery.$error,
     $params,
 
@@ -376,6 +400,10 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
       hasPreviousPage: $hasPreviousPage,
       status: pageQuery.$status,
       pending: $pending,
+      isInitialLoading: $isInitialLoading,
+      isFetchingNextPage: $isFetchingNextPage,
+      isFetchingPreviousPage: $isFetchingPreviousPage,
+      isRefetching: $isRefetching,
       error: pageQuery.$error,
       start,
       fetchNext,

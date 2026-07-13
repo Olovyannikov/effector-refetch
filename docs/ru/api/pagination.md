@@ -19,8 +19,10 @@ feed.fetchNext(); // докидывает; no-op, если $hasNextPage = false 
 feed.refetchAll(); // перезапрашивает ВСЕ накопленные страницы (те же pageParams), сохраняя окно
 ```
 
-Предоставляет `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$status`, `$pending`,
-`$error`, `finished.{done,fail}` и поддержку `useUnit(feed)`.
+Предоставляет `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`, `$status`,
+`$pending`, `$error`, `finished.{done,fail}` и поддержку `useUnit(feed)`. Флаги загрузки:
+`$isInitialLoading` (страниц ещё нет — скелетон), `$isFetchingNextPage` / `$isFetchingPreviousPage`
+(какой конец грузится), `$isRefetching` (`refetchAll` перезагружает окно).
 
 `getNextPageParam` получает `{ lastPage, allPages, lastPageParam, allPageParams }` и
 возвращает параметр следующей страницы либо `null`/`undefined`, когда страниц больше нет.
