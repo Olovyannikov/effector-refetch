@@ -188,7 +188,7 @@ What's missing, planned as effector-flavored features (post-1.0, order TBD):
   visible in the inspector / time-travel. `$queryCache` already solved the isolation pain;
   v2 mostly adds "serialize carries the cache", at the cost of dropping async adapters,
   extra store churn on LRU touch, and a heavier serialize payload. Not planned until a
-  concrete need (e.g. streaming SSR) — open for feedback. See the tracking issue.
+  concrete need (e.g. streaming SSR) — open for feedback. See [#22](https://github.com/Olovyannikov/effector-refetch/issues/22).
 
 ### Deliberately not copied
 
