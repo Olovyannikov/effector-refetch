@@ -1,5 +1,83 @@
 # effector-refetch
 
+## 0.15.0
+
+### Minor Changes
+
+- a00697c: Loading flavors for `createInfiniteQuery`.
+  - `$isInitialLoading` — a run is in flight with no pages accumulated yet (first load / after
+    `start` — pages reset) — show a skeleton.
+  - `$isFetchingNextPage` / `$isFetchingPreviousPage` — which end of the list is loading, so the
+    UI can put the spinner on the right side.
+  - `$isRefetching` — `refetchAll` is reloading the window over the visible pages.
+
+  All derived from existing state; exposed on the query and through `@@unitShape` (`useUnit(feed)`).
+
+- 051ac81: `$isInitialLoading` / `$isRefetching` — tell a first load from a background refetch.
+  - `$isInitialLoading` — a run is in flight and there's no real data yet (a `placeholderData`
+    value doesn't count, `initialData` does) — show a skeleton.
+  - `$isRefetching` — a run is in flight over existing real data (refetch / polling / SWR
+    revalidation) — keep the data visible, show a corner spinner.
+
+  Exposed on the query, through `@@unitShape` (`useUnit(query)`) and in the React / Vue / Solid
+  `useQuery` helpers.
+
+- eeeb4eb: `optimisticUpdate` is now safe for parallel mutations (base + layer queue instead of a single
+  rollback snapshot).
+  - Each `start` snapshots the pre-mutation data as a shared base (once per in-flight burst) and
+    stacks its own optimistic layer; a failure removes **only its own** layer and re-applies the
+    remaining ones — previously a second in-flight mutation overwrote the single snapshot, and a
+    failure could permanently lose the original data.
+  - A success materializes its layer into the base; `commit` keeps its current semantics (it
+    receives the data with this mutation's own optimistic layer applied).
+  - New: an **aborted** run also rolls back its layer — an `enabled`-gate skip or a `TAKE_LATEST`
+    supersede no longer leaves the optimistic value stuck forever.
+  - `cancel` / `reset` roll back **all** in-flight layers (previously only until the first settle
+    reset the internal flag).
+  - Layers are matched to settles by their params (stable JSON, FIFO for identical params) and
+    re-applied in start order; non-commuting `update` functions under out-of-order settles should
+    reconcile via `commit` or `invalidate`.
+
+- 29ab630: `$queryCache` — scope-isolated cache for multi-tenant SSR.
+  - `fork({ values: [[$queryCache, inMemoryCache()]] })` gives every query in that scope an
+    isolated cache adapter — concurrent SSR requests can no longer see each other's entries;
+    `dehydrate(cache)` snapshots exactly one request's data. Default (`null`) keeps the previous
+    behavior: each query uses its own configured adapter.
+  - Inside a shared scope adapter, entries are namespaced per query (`name` ?? the effect's sid
+    ?? a creation counter) — give queries stable `name`s for SSR hydration when module init
+    order may differ between bundles.
+  - A query's cache `purge` is scope-aware and removes only that query's namespaced entries
+    from the scope adapter.
+  - `$queryCache` is excluded from `serialize(scope)`.
+  - Internal seam change: `query.__.purgeFx` is now an `EventCallable<void>` (was an `Effect`) —
+    the `cache()` operator API is unchanged.
+
+- bc1ab80: Tag invalidation and `refetchAll` for infinite queries.
+  - **`tags: string[]`** on `createQuery` / `createInfiniteQuery` + a global
+    **`invalidateTag(tag | tags[])`** event — cross-module invalidation with no query imports
+    at the call site. A matching tag makes a tagged query purge its cache namespace (prefetch
+    warm-ups and entries under other params don't survive) and refetch with its last params
+    (only if it has run). Graph-wired per query — no registry; scope-correct via
+    `allSettled(invalidateTag, { scope, params })`.
+  - **`infiniteQuery.refetchAll()`** — re-fetch every accumulated page with its stored
+    pageParam, keeping the window (unlike `start`, which resets to the first page). Sequential,
+    atomic swap on completion, token-guarded: a `start`/`reset` during the refetch discards the
+    stale result. `$pending` covers the refetch; a failure keeps the current window and surfaces
+    through `finished.fail`. A tagged infinite query runs `refetchAll` on `invalidateTag`.
+
+### Patch Changes
+
+- 889e241: Scope-safety fixes in observability and bindings.
+  - `attachQueryLogger`: durations are now tracked per params key instead of one shared slot —
+    concurrent (`TAKE_EVERY` / multi-scope) runs no longer clobber each other's `durationMs`.
+    New `scope` option restricts the log to one fork (without it the logger stays global).
+  - `refetchOnWindowFocus` / `refetchOnReconnect`: the effector wiring is created once per
+    (query, event) — subscribing on every component mount no longer grows the graph;
+    unsubscribe removes only the DOM listener.
+  - `useSuspenseQuery`: the cached suspense promise is dropped on settle. Previously, if the
+    component unmounted before the query settled, a stale resolved promise stayed in the cache
+    and the next pending cycle re-threw it — React retried the render in a hot loop.
+
 ## 0.14.0
 
 ### Minor Changes
