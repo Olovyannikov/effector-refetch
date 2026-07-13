@@ -203,12 +203,16 @@ const ruSidebar = {
   ],
 };
 
+// Overridable for per-PR previews (gh-pages subfolder): the preview workflow
+// sets DOCS_BASE=/effector-refetch/pr-preview/pr-N/ so assets resolve correctly.
+const base = process.env.DOCS_BASE || '/effector-refetch/';
+
 export default defineConfig({
   title: 'effector-refetch',
   description: 'Friendly query layer for effector, built on real effects',
-  // Overridable for per-PR previews (gh-pages subfolder): the preview workflow
-  // sets DOCS_BASE=/effector-refetch/pr-preview/pr-N/ so assets resolve correctly.
-  base: process.env.DOCS_BASE || '/effector-refetch/',
+  base,
+  // base-aware so the icon resolves under per-PR preview subfolders too
+  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}favicon.svg` }]],
   lastUpdated: true,
   cleanUrls: true,
   markdown: {
@@ -224,6 +228,7 @@ export default defineConfig({
     ],
   },
   themeConfig: {
+    logo: '/logo.svg',
     socialLinks: [{ icon: 'github', link: 'https://github.com/Olovyannikov/effector-refetch' }],
     search: { provider: 'local' },
   },

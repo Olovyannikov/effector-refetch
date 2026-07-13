@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./docs/public/logo.svg" width="96" height="96" alt="effector-refetch logo" />
+</p>
+
 # effector-refetch
 
 📖 **Docs:** https://olovyannikov.github.io/effector-refetch/ · 🗺️ [Roadmap](./ROADMAP.md)
