@@ -181,6 +181,15 @@ What's missing, planned as effector-flavored features (post-1.0, order TBD):
 - [x] Network mode / offline: `createNetworkBarrier()` locks while offline (pauses gated runs), unlocks on reconnect; exposes `$online`. Pairs with `refetchOnReconnect`
 - [x] Vue & Solid devtools parity — `EffectorQueryDevtools` for `effector-refetch/devtools/vue` and `/devtools/solid`
 
+### Under consideration
+
+- **Store-backed cache ("cache v2")** — hold cache entries in an effector store so
+  `serialize(scope)` carries them itself (one channel instead of `serialize` + `dehydrate`),
+  visible in the inspector / time-travel. `$queryCache` already solved the isolation pain;
+  v2 mostly adds "serialize carries the cache", at the cost of dropping async adapters,
+  extra store churn on LRU touch, and a heavier serialize payload. Not planned until a
+  concrete need (e.g. streaming SSR) — open for feedback. See [#22](https://github.com/Olovyannikov/effector-refetch/issues/22).
+
 ### Deliberately not copied
 
 - A central mutable `QueryClient` — effector is decentralized; we use operators + a small
@@ -206,7 +215,7 @@ Things farfetched ships that effector-refetch does not yet (tracked from the hon
 - [x] **Params mapping** — `createQuery({ source, mapParams })`: public params (+ fork-correct `source` stores) mapped into the effect's params per run; cache keyed by the **mapped** params. `createRequestFx` effects became honest `Effect<Params, Result>` units (the AbortSignal rides a synchronous side channel), so a plain `attach({ source, mapParams })` composes with them without losing cancellation.
 - [x] **Per-mutation optimistic contexts** — `optimisticUpdate` moved from a single rollback snapshot to a base + layer queue: parallel (`TAKE_EVERY`) mutations each keep their own layer (a failure removes only its own), aborted runs (`enabled` skip / `TAKE_LATEST` supersede) roll back too, `cancel`/`reset` drop all in-flight layers.
 - [x] **Scope-isolated cache (`$queryCache`)** — a per-fork adapter override: `fork({ values: [[$queryCache, inMemoryCache()]] })` isolates every query's cache per request (multi-tenant SSR safe; farfetched's in-memory cache is closure-global). Entries namespaced per query (`name` ?? effect sid ?? counter); scope-aware `purge` removes only the query's own namespace; excluded from `serialize`.
-- [x] **`$isInitialLoading` / `$isRefetching`** — first load (no real data yet; skeleton) vs a background run over existing data (spinner), on the query, in `@@unitShape` and in the React/Vue/Solid `useQuery` helpers. (Infinite queries: follow-up.)
+- [x] **`$isInitialLoading` / `$isRefetching`** — first load (no real data yet; skeleton) vs a background run over existing data (spinner), on the query, in `@@unitShape` and in the React/Vue/Solid `useQuery` helpers. Infinite queries expose `$isInitialLoading` / `$isFetchingNextPage` / `$isFetchingPreviousPage` / `$isRefetching`.
 - [x] **Tag invalidation + infinite `refetchAll`** — `tags` on queries/infinite queries + a global `invalidateTag(tag | tags[])` event (graph-wired, no registry, scope-correct): tagged queries purge their cache namespace and refetch with last params; tagged infinite queries re-fetch the whole window via the new `refetchAll` trigger (token-guarded against a concurrent `start`/`reset`).
 
 Already ahead of farfetched (no action needed): effect-first unit, real `AbortSignal`

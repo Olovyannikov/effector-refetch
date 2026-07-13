@@ -19,8 +19,10 @@ feed.fetchNext(); // appends; no-op when $hasNextPage is false or already loadin
 feed.refetchAll(); // re-fetches EVERY accumulated page (same pageParams), keeping the window
 ```
 
-Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$status`, `$pending`,
-`$error`, `finished.{done,fail}`, and `useUnit(feed)` support.
+Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`, `$status`,
+`$pending`, `$error`, `finished.{done,fail}`, and `useUnit(feed)` support. Loading flavors:
+`$isInitialLoading` (no pages yet — skeleton), `$isFetchingNextPage` / `$isFetchingPreviousPage`
+(which end is loading), `$isRefetching` (`refetchAll` reloading the window).
 
 `getNextPageParam` receives `{ lastPage, allPages, lastPageParam, allPageParams }` and
 returns the next page param, or `null`/`undefined` when there are no more pages.
