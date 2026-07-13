@@ -8,8 +8,8 @@
   <!-- refetch cycle: a clockwise ring, open at the top, around the effect node -->
   <circle cx="128" cy="128" r="72" stroke="url(#er)" stroke-width="27" stroke-linecap="round"
           stroke-dasharray="377 75.4" transform="rotate(-60 128 128)"/>
-  <!-- arrow head continuing the rotation out of the gap -->
-  <path d="M193.4 82.65 L150 89.9 L178 41.4 Z" fill="url(#er)"/>
+  <!-- arrow head at the left end of the gap, aligned to the clockwise tangent -->
+  <path d="M116.25 51.65 L97.9 81.87 L80.9 52.43 Z" fill="url(#er)"/>
   <!-- effect node -->
   <circle cx="128" cy="128" r="26" fill="url(#er)"/>
 </svg>
