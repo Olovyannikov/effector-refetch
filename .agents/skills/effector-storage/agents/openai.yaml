@@ -1,5 +1,0 @@
-version: 1
-interface:
-  display_name: 'Effector Storage'
-  short_description: 'Choose and wire effector-storage adapters with reliable sync and validation patterns'
-  default_prompt: 'Use $effector-storage to select the right adapter, wire persist/createPersist, and include caveats for sync timing, contracts, and SSR fallback.'

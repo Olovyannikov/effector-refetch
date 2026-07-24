@@ -1,23 +1,17 @@
 {
   "version": 1,
   "skills": {
-    "effector-storage": {
-      "source": "aiko-atami/effectorjs-skills",
+    "effector-ecosystem": {
+      "source": "demark-pro/skills",
       "sourceType": "github",
-      "skillPath": "skills/effector-storage/SKILL.md",
-      "computedHash": "17b39b783354bcd83002b7e72005529b457c047225ca3652ba6867749b9b91d2"
+      "skillPath": "skills/effector-ecosystem/SKILL.md",
+      "computedHash": "2f088768be646969c038d3bc46530c4278ebc823243770bb6d845f3968ae7ae9"
     },
-    "effectorjs": {
-      "source": "aiko-atami/effectorjs-skills",
+    "effector-fsd": {
+      "source": "demark-pro/skills",
       "sourceType": "github",
-      "skillPath": "skills/effectorjs/SKILL.md",
-      "computedHash": "ef9db8af751d6636895fe6c30465d5d8433a4ffae58558f55f44fb62ab58d008"
-    },
-    "patronum": {
-      "source": "aiko-atami/effectorjs-skills",
-      "sourceType": "github",
-      "skillPath": "skills/patronum/SKILL.md",
-      "computedHash": "5409960a1fe6bab81f35e8600d80ce5a644e578464e163824a318ee5d1a31c79"
+      "skillPath": "skills/effector-fsd/SKILL.md",
+      "computedHash": "614a9a7de5024db3ac7ee2ba17dc38a0e55bbf7dedbebe029011fc4e297ef649"
     }
   }
 }

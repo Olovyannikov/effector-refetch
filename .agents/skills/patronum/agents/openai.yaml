@@ -1,4 +1,0 @@
-interface:
-  display_name: 'Patronum'
-  short_description: 'Pick Patronum operators with practical v2 examples.'
-  default_prompt: 'Use $patronum to choose the right Patronum operator and provide a minimal working Effector snippet.'
