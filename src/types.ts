@@ -199,7 +199,8 @@ export interface ResolvedRetry<Error = unknown> {
 /** Resolved cache config the engine reads at runtime (operators produce it). */
 export interface ResolvedCache<Params = unknown> {
   adapter: CacheAdapter;
-  staleAfter: number;
+  /** `null` = not explicitly configured — `$queryDefaults.staleAfter` (then Infinity) applies. */
+  staleAfter: number | null;
   key: (params: Params) => string;
   swr: boolean;
   dedupe: boolean;

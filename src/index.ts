@@ -70,6 +70,7 @@ export {
   hydrate,
   type DehydratedEntry,
 } from './cache';
+export { $queryDefaults, setQueryDefaults, type QueryDefaults } from './defaults';
 export {
   ValidationError,
   isValidationError,

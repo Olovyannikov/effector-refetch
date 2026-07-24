@@ -27,6 +27,7 @@ import type {
 import { ValidationError } from './validation';
 import { provideAbortSignal, RequestError, takeAbortSignal } from './request';
 import { $queryCache } from './cache';
+import { $queryDefaults, type QueryDefaults } from './defaults';
 import { replaceEqualDeep } from './utils';
 import { makeTrigger } from './trigger';
 import { setupPolling } from './engine/polling';
@@ -124,11 +125,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     ? (config.refetchInterval as Store<number>)
     : createStore(typeof config.refetchInterval === 'number' ? config.refetchInterval : 0);
 
-  let strategyConst: ConcurrencyStrategy = 'TAKE_LATEST';
+  // null = not explicitly configured -> the $queryDefaults layer (then built-ins) applies
+  let strategyConst: ConcurrencyStrategy | null = null;
   let laneKeyConst: ((params: Params) => string) | null = null;
   let retryTimesConst = 0;
-  let staleAfterConst = Infinity;
-  let timeoutConst = 0;
+  let staleAfterConst: number | null = null;
+  let timeoutConst: number | null = null;
   let retryRef: {
     delay: ResolvedRetry<Error>['delay'];
     filter: ResolvedRetry<Error>['filter'];
@@ -146,10 +148,17 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   let barrierRef = config.barrier ?? null;
 
   const swrOf = () => !!cacheRef && cacheRef.swr;
-  const stratOf = (v: ConcurrencyStrategy | null): ConcurrencyStrategy => v ?? strategyConst;
-  const timesOf = (v: number | null): number => v ?? retryTimesConst;
-  const staleOf = (v: number | null): number => v ?? staleAfterConst;
-  const timeoutOf = (v: number | null): number => v ?? timeoutConst;
+  // effective config: inline Store ?? explicit constant ?? $queryDefaults ?? built-in
+  const stratOf = (v: ConcurrencyStrategy | null, defs: QueryDefaults): ConcurrencyStrategy =>
+    v ?? strategyConst ?? defs.concurrency ?? 'TAKE_LATEST';
+  const timesOf = (v: number | null, defs: QueryDefaults): number =>
+    v ?? (retryRef ? retryTimesConst : (defs.retry ?? 0));
+  const staleOf = (v: number | null, defs: QueryDefaults): number =>
+    v ?? staleAfterConst ?? defs.staleAfter ?? Infinity;
+  const timeoutOf = (v: number | null, defs: QueryDefaults): number => v ?? timeoutConst ?? defs.timeout ?? 0;
+  // retry behavior for runs relying on `$queryDefaults.retry` (no explicit retry config)
+  const DEFAULT_RETRY = { delay: () => 0, filter: () => true, suppress: true };
+  const retryOf = (defs: QueryDefaults) => retryRef ?? ((defs.retry ?? 0) > 0 ? DEFAULT_RETRY : null);
   // concurrency lanes: runs whose (public) params map to the same key compete with each
   // other; runs in different lanes are independent. No key -> one lane ('') = old behavior.
   const laneOf = (params: Params): string => (laneKeyConst ? laneKeyConst(params) : '');
@@ -164,9 +173,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     laneIds.has(laneOf(params)) ? 'superseded' : 'cancelled';
   // shared sample predicates/payloads (also keeps the bundle small)
   const currentIn = (
-    s: { laneIds: ReadonlyMap<string, number>; strat: ConcurrencyStrategy | null },
+    s: { laneIds: ReadonlyMap<string, number>; strat: ConcurrencyStrategy | null; defs: QueryDefaults },
     run: { runId: number; params: Params },
-  ) => isCurrent(stratOf(s.strat), s.laneIds, run.runId, run.params);
+  ) => isCurrent(stratOf(s.strat, s.defs), s.laneIds, run.runId, run.params);
   const staleAbort = (s: { laneIds: ReadonlyMap<string, number> }, run: { params: Params }) => ({
     params: run.params,
     reason: staleReason(s.laneIds, run.params),
@@ -348,14 +357,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // dropped here, so it never reaches the network
   sample({
     clock: barrierWaitFx.doneData,
-    source: { laneIds: $laneIds, strat: $strategySrc },
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
     filter: currentIn,
     fn: (_s, run) => run,
     target: runFx,
   });
   sample({
     clock: barrierWaitFx.doneData,
-    source: { laneIds: $laneIds, strat: $strategySrc },
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
     filter: (s, run) => !currentIn(s, run),
     fn: staleAbort,
     target: aborted,
@@ -406,15 +415,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const proceed = createEvent<{ params: Params; mapped: unknown; fresh: boolean }>(evName('proceed'));
   sample({
     clock: allowed,
-    source: { reg: $runRegistry, strat: $strategySrc },
-    filter: ({ reg, strat }, r) => !(stratOf(strat) === 'TAKE_FIRST' && laneIsBusy(reg, r.params)),
+    source: { reg: $runRegistry, strat: $strategySrc, defs: $queryDefaults },
+    filter: ({ reg, strat, defs }, r) =>
+      !(stratOf(strat, defs) === 'TAKE_FIRST' && laneIsBusy(reg, r.params)),
     fn: (_s, r) => r,
     target: proceed,
   });
   sample({
     clock: allowed,
-    source: { reg: $runRegistry, strat: $strategySrc },
-    filter: ({ reg, strat }, r) => stratOf(strat) === 'TAKE_FIRST' && laneIsBusy(reg, r.params),
+    source: { reg: $runRegistry, strat: $strategySrc, defs: $queryDefaults },
+    filter: ({ reg, strat, defs }, r) => stratOf(strat, defs) === 'TAKE_FIRST' && laneIsBusy(reg, r.params),
     fn: (_s, r) => ({ params: r.params, reason: 'take-first-busy' as const }),
     target: aborted,
   });
@@ -465,12 +475,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
   sample({
     clock: proceed,
-    source: { stale: $staleAfterSrc, adapter: $queryCache },
+    source: { stale: $staleAfterSrc, adapter: $queryCache, defs: $queryDefaults },
     filter: (_s, r) => !!cacheRef && !r.fresh,
-    fn: ({ stale, adapter }, r) => ({
+    fn: ({ stale, adapter, defs }, r) => ({
       params: r.params,
       mapped: r.mapped,
-      staleAfter: staleOf(stale),
+      staleAfter: staleOf(stale, defs),
       adapter,
     }),
     target: lookupFx,
@@ -552,12 +562,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
   sample({
     clock: prefetch,
-    source: { src: $mapSrc, stale: $staleAfterSrc, adapter: $queryCache },
+    source: { src: $mapSrc, stale: $staleAfterSrc, adapter: $queryCache, defs: $queryDefaults },
     filter: () => !!cacheRef,
-    fn: ({ src, stale, adapter }, params) => ({
+    fn: ({ src, stale, adapter, defs }, params) => ({
       params,
       mapped: mapOf(params, src),
-      staleAfter: staleOf(stale),
+      staleAfter: staleOf(stale, defs),
       adapter,
     }),
     target: prefetchLookupFx,
@@ -614,12 +624,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // tag with a fresh runId, reset attempts, then execute the real effect
   const tagged = sample({
     clock: toRun,
-    source: { id: $runId, timeout: $timeoutSrc },
-    fn: ({ id, timeout }, r): Run<Params> => ({
+    source: { id: $runId, timeout: $timeoutSrc, defs: $queryDefaults },
+    fn: ({ id, timeout, defs }, r): Run<Params> => ({
       runId: id + 1,
       params: r.params,
       mapped: r.mapped,
-      timeoutMs: timeoutOf(timeout),
+      timeoutMs: timeoutOf(timeout, defs),
     }),
   });
   $runId.on(tagged, (_id, t) => t.runId);
@@ -628,8 +638,8 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // TAKE_LATEST: abort the superseded in-flight request OF THIS LANE before the new one starts
   sample({
     clock: tagged,
-    source: $strategySrc,
-    filter: (s) => stratOf(s) === 'TAKE_LATEST',
+    source: { strat: $strategySrc, defs: $queryDefaults },
+    filter: ({ strat, defs }) => stratOf(strat, defs) === 'TAKE_LATEST',
     fn: (_s, t) => laneOf(t.params),
     target: abortInFlightFx,
   });
@@ -643,7 +653,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // ---- result acceptance (concurrency) ----
   sample({
     clock: runFx.done,
-    source: { laneIds: $laneIds, strat: $strategySrc },
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
     filter: (s, { result }) => currentIn(s, result),
     fn: (_s, { result }) => ({
       runId: result.runId,
@@ -656,7 +666,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
   sample({
     clock: runFx.done,
-    source: { laneIds: $laneIds, strat: $strategySrc },
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
     filter: (s, { result }) => !currentIn(s, result),
     fn: (s, { result }) => staleAbort(s, result),
     target: aborted,
@@ -664,6 +674,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   // ---- failure / retry ----
   const willRetry = (
+    defs: QueryDefaults,
     strategy: ConcurrencyStrategy,
     laneIds: ReadonlyMap<string, number>,
     attempts: number,
@@ -671,11 +682,15 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     runId: number,
     params: Params,
     error: Error,
-  ) =>
-    !!retryRef &&
-    isCurrent(strategy, laneIds, runId, params) &&
-    attempts < times &&
-    retryRef.filter({ error, attempt: attempts + 1 });
+  ) => {
+    const retry = retryOf(defs);
+    return (
+      !!retry &&
+      isCurrent(strategy, laneIds, runId, params) &&
+      attempts < times &&
+      retry.filter({ error, attempt: attempts + 1 })
+    );
+  };
 
   const scheduleRetry = createEvent<Run<Params> & { error: Error }>(evName('scheduleRetry'));
   const finalFail = createEvent<{ params: Params; error: Error }>(evName('finalFail'));
@@ -733,12 +748,13 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     attempts: $attempts,
     timesSrc: $retryTimesSrc,
     strat: $strategySrc,
+    defs: $queryDefaults,
   };
   sample({
     clock: failed,
     source: failSource,
-    filter: ({ laneIds, attempts, timesSrc, strat }, { runId, params, error }) =>
-      willRetry(stratOf(strat), laneIds, attempts, timesOf(timesSrc), runId, params, error),
+    filter: ({ laneIds, attempts, timesSrc, strat, defs }, { runId, params, error }) =>
+      willRetry(defs, stratOf(strat, defs), laneIds, attempts, timesOf(timesSrc, defs), runId, params, error),
     fn: (_s, { runId, params, mapped, error, timeoutMs }) => ({ runId, params, mapped, error, timeoutMs }),
     target: scheduleRetry,
   });
@@ -747,13 +763,22 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     source: failSource,
     filter: (s, f) =>
       currentIn(s, f) &&
-      !willRetry(stratOf(s.strat), s.laneIds, s.attempts, timesOf(s.timesSrc), f.runId, f.params, f.error),
+      !willRetry(
+        s.defs,
+        stratOf(s.strat, s.defs),
+        s.laneIds,
+        s.attempts,
+        timesOf(s.timesSrc, s.defs),
+        f.runId,
+        f.params,
+        f.error,
+      ),
     fn: (_s, { params, error }) => ({ params, error }),
     target: finalFail,
   });
   sample({
     clock: failed,
-    source: { laneIds: $laneIds, strat: $strategySrc },
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
     filter: (s, f) => !currentIn(s, f),
     fn: staleAbort,
     target: aborted,
@@ -764,16 +789,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   $retrying.on(scheduleRetry, () => true);
   sample({
     clock: scheduleRetry,
-    source: $attempts,
-    fn: (attempt, s): { ms: number; payload: unknown } => ({
-      ms: (retryRef?.delay ?? (() => 0))(attempt),
+    source: { attempt: $attempts, defs: $queryDefaults },
+    fn: ({ attempt, defs }, s): { ms: number; payload: unknown } => ({
+      ms: (retryOf(defs)?.delay ?? (() => 0))(attempt),
       payload: { runId: s.runId, params: s.params, mapped: s.mapped, timeoutMs: s.timeoutMs } as Run<Params>,
     }),
     target: sleepFx,
   });
   sample({
     clock: sleepFx.doneData,
-    source: { laneIds: $laneIds, strat: $strategySrc },
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
     filter: (s, payload) => currentIn(s, payload as Run<Params>),
     fn: (_s, payload) => payload as Run<Params>,
     target: toRunFx,
