@@ -233,6 +233,10 @@ Barriers/browser helpers (`refetchOnWindowFocus`, `refetchOnReconnect`) use the 
 
 - `createQueryFactory({ retry, cache, barrier, ... })` → a `createQuery` with shared defaults,
   a group `invalidate`, and a registry of its queries.
+- `$queryDefaults` — run-time per-scope defaults (`concurrency`/`retry`/`staleAfter`/`timeout`),
+  read at dispatch: `fork({ values: [[$queryDefaults, { timeout: 5_000 }]] })` or
+  `setQueryDefaults({ retry: 1 })`. Explicit query config (incl. factory) always wins;
+  explicit `timeout: 0` opts out entirely.
 - `name` (or `debug: true`) labels every public + internal unit in the effector inspector.
 - `attachQueryLogger(query, { name, handler })` for headless logging.
 - Visual panels: `EffectorQueryDevtools` from `effector-refetch/devtools` (React) and

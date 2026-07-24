@@ -66,8 +66,9 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
     sourced,
   );
 
-  // constants via the standalone operators; sourced stores already wired above
-  if (!is.store(c)) concurrency(query, { strategy: c ?? 'TAKE_LATEST' });
+  // constants via the standalone operators; sourced stores already wired above.
+  // An omitted strategy stays unset so the $queryDefaults layer can supply it.
+  if (!is.store(c) && c != null) concurrency(query, { strategy: c });
   if (cObj?.key) concurrency(query, { key: cObj.key });
   if (r != null) retry(query, r);
   if (ca) cache(query, ca);
