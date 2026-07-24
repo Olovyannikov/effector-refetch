@@ -140,6 +140,9 @@ const QueryDetail = defineComponent({
     let detach: (() => void) | undefined;
 
     onMounted(() => {
+      // NOTE: effector-vue/solid expose no public scope accessor, so this logger is
+      // scope-blind — in a forked app it sees every scope's runs (state reads above
+      // are provider-scoped). Pass nothing; document the limitation instead.
       detach = attachQueryLogger(props.query, {
         name: props.label,
         handler: (entry) => {

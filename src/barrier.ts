@@ -42,9 +42,23 @@ export function createBarrier(config: CreateBarrierConfig = {}): Barrier {
 
   if (config.perform) {
     // run `perform` when the barrier transitions to locked (re-locks are no-ops,
-    // since the store value doesn't change), then re-open when it settles
-    sample({ clock: $locked.updates, filter: (locked) => locked, target: config.perform });
-    sample({ clock: config.perform.finally, target: unlock });
+    // since the store value doesn't change), then re-open when it settles.
+    // $performing gates the unlock: a SHARED perform effect settling from an
+    // unrelated call must not unlock a barrier that never started it. (Settles
+    // are not attributable per-call, so an unrelated settle arriving WHILE the
+    // barrier's own run is in flight still unlocks — use a dedicated effect per
+    // barrier when that matters.)
+    const $performing = createStore(0);
+    const launched = sample({ clock: $locked.updates, filter: (locked) => locked });
+    $performing.on(launched, (n) => n + 1);
+    sample({ clock: launched, target: config.perform });
+    const settledOurs = sample({
+      clock: config.perform.finally,
+      source: $performing,
+      filter: (n) => n > 0,
+    });
+    $performing.on(settledOurs, (n) => Math.max(0, n - 1));
+    sample({ clock: settledOurs, target: unlock });
   }
 
   const wait = (): Promise<void> => {

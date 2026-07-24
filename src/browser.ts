@@ -57,7 +57,8 @@ function refetchOnWindowEvent(query: AnyQuery, event: string, scope?: Scope): ()
 /**
  * Refetch the query when the window regains focus (browser only). The query must
  * have run at least once and be enabled. Returns an unsubscribe function. Pass a
- * `scope` to make the refetch fork-correct (fires into that scope via `scopeBind`).
+ * `scope` to make the refetch fork-correct (fires into that scope via `allSettled`,
+ * which holds the fork context across the async run chain).
  */
 export function refetchOnWindowFocus(query: AnyQuery, scope?: Scope): () => void {
   return refetchOnWindowEvent(query, 'focus', scope);

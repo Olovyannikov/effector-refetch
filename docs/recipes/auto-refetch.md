@@ -123,3 +123,18 @@ throttle({ source: refreshClicked, timeout: 1000, target: dashboard.refresh });
 
 Use the built-in `refetchInterval` for the common case; reach for patronum when you want
 explicit start/stop, debounce or throttle semantics.
+
+::: warning Polling and SSR
+With `refetchInterval > 0`, `allSettled(query.start, { scope })` never resolves — every
+settle schedules the next tick, so the scope never goes idle. For SSR (or tests that
+await the scope), make the interval a `Store<number>` and set it to `0` in that scope:
+
+```ts
+const $interval = createStore(30_000);
+const stats = createQuery({ effect: fetchStatsFx, refetchInterval: $interval });
+
+// per-request SSR scope: polling off
+const scope = fork({ values: [[$interval, 0]] });
+```
+
+:::

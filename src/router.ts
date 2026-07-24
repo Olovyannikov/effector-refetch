@@ -35,7 +35,10 @@ export interface AttachToRouteConfig<Opened, QueryParams> {
  *
  *   attachToRoute({ route: userRoute, query: userQuery, mapParams: ({ params }) => Number(params.id) });
  *
- * Pure `sample` under the hood, so it's scope-correct/SSR-friendly.
+ * Pure `sample` under the hood, so it's scope-correct/SSR-friendly. Note: the internal
+ * openness flag is not serialized, so after SSR hydration a client-side re-emit of
+ * `opened` re-starts the query even though the data hydrated — pair the query with
+ * `cache` (fresh entries skip the network) if that refetch-on-hydrate is unwanted.
  */
 export function attachToRoute<Opened, QueryParams = Opened extends { params: infer P } ? P : void>(
   config: AttachToRouteConfig<Opened, QueryParams>,

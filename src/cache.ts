@@ -152,6 +152,12 @@ function webStorageCache(getStorage: () => Storage, options: WebStorageCacheOpti
         }
         return { value: rec.value, storedAt: rec.storedAt };
       } catch {
+        // unparseable/corrupt entry: evict it so it can't poison future reads
+        try {
+          getStorage().removeItem(k(key));
+        } catch {
+          /* ignore */
+        }
         return null;
       }
     },
