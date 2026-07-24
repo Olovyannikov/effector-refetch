@@ -96,6 +96,39 @@ export function timeout<Q extends AnyQuery>(query: Q, ms: number | Store<number>
 }
 
 /**
+ * Debounce runs: wait `ms` before executing; a newer run in the same lane started
+ * during the wait supersedes this one BEFORE it hits the network — a true debounce
+ * for search-as-you-type under TAKE_LATEST. `debounce(searchQuery, 300)`. `0` disables.
+ *
+ * `createQuery({ debounce })` is sugar over this. A `Store<number>` is accepted but
+ * **snapshotted** at setup; for per-scope reactive debounce use the inline option.
+ */
+export function debounce<Q extends AnyQuery>(query: Q, ms: number | Store<number>): Q {
+  query.__.setDebounce(is.store(ms) ? ms.getState() : ms);
+  return query;
+}
+
+/**
+ * Recover a FINAL failure (after retries) into data: `$data` gets the value, `$status`
+ * becomes 'done', `finished.done` fires; the value is NOT written to the cache.
+ * Aborts/skips are exempt. `fallback(query, [])` or `fallback(query, ({ error, params }) => …)`.
+ * Pass `null` to detach. `createQuery({ fallback })` is sugar over this.
+ */
+export function fallback<Q extends AnyQuery>(
+  query: Q,
+  value: unknown | ((ctx: { error: unknown; params: unknown }) => unknown) | null,
+): Q {
+  query.__.setFallback(
+    value == null
+      ? null
+      : typeof value === 'function'
+        ? (value as (ctx: { error: unknown; params: unknown }) => unknown)
+        : () => value,
+  );
+  return query;
+}
+
+/**
  * Refetch the query (with its last params) whenever a `source` store changes or
  * a `@@trigger` fires — keeps the data fresh relative to external state (filters,
  * locale, viewer, a websocket ping, another query/mutation succeeding, …):

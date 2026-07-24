@@ -121,6 +121,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const $retryTimesSrc: Store<number | null> = sourced.retryTimes ?? createStore<number | null>(null);
   const $staleAfterSrc: Store<number | null> = sourced.staleAfter ?? createStore<number | null>(null);
   const $timeoutSrc: Store<number | null> = sourced.timeout ?? createStore<number | null>(null);
+  const $debounceSrc: Store<number | null> = sourced.debounce ?? createStore<number | null>(null);
   const $intervalMs: Store<number> = is.store(config.refetchInterval)
     ? (config.refetchInterval as Store<number>)
     : createStore(typeof config.refetchInterval === 'number' ? config.refetchInterval : 0);
@@ -131,6 +132,8 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   let retryTimesConst = 0;
   let staleAfterConst: number | null = null;
   let timeoutConst: number | null = null;
+  let debounceConst = 0;
+  let fallbackRef: ((ctx: { error: Error; params: Params }) => Result) | null = null;
   let retryRef: {
     delay: ResolvedRetry<Error>['delay'];
     filter: ResolvedRetry<Error>['filter'];
@@ -156,6 +159,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const staleOf = (v: number | null, defs: QueryDefaults): number =>
     v ?? staleAfterConst ?? defs.staleAfter ?? Infinity;
   const timeoutOf = (v: number | null, defs: QueryDefaults): number => v ?? timeoutConst ?? defs.timeout ?? 0;
+  const debounceOf = (v: number | null): number => v ?? debounceConst;
   // retry behavior for runs relying on `$queryDefaults.retry` (no explicit retry config)
   const DEFAULT_RETRY = { delay: () => 0, filter: () => true, suppress: true };
   const retryOf = (defs: QueryDefaults) => retryRef ?? ((defs.retry ?? 0) > 0 ? DEFAULT_RETRY : null);
@@ -446,6 +450,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   );
   // SWR: a stale cache entry served immediately while a background refetch runs
   const staleServe = createEvent<{ params: Params; result: Result }>(evName('staleServe'));
+  // fallback: a FINAL failure recovered into data (bypasses the cache write — the
+  // fallback value is not server truth)
+  const recovered = createEvent<{ params: Params; result: Result }>(evName('recovered'));
 
   const lookupFx = createEffect({
     name: evName('lookupFx'),
@@ -643,7 +650,23 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     fn: (_s, t) => laneOf(t.params),
     target: abortInFlightFx,
   });
-  sample({ clock: tagged, target: toRunFx });
+  // debounce: hold the tagged run in sleepFx; the shared wake-up sample below re-checks
+  // lane currency, so a newer run started during the wait drops this one BEFORE the
+  // network (a true debounce under TAKE_LATEST). No debounce -> straight to the effect.
+  sample({
+    clock: tagged,
+    source: $debounceSrc,
+    filter: (d) => debounceOf(d) <= 0,
+    fn: (_d, t) => t,
+    target: toRunFx,
+  });
+  sample({
+    clock: tagged,
+    source: $debounceSrc,
+    filter: (d) => debounceOf(d) > 0,
+    fn: (d, t): { ms: number; payload: unknown } => ({ ms: debounceOf(d), payload: t }),
+    target: sleepFx,
+  });
 
   $params
     .on(tagged, (_p, t) => t.params ?? null)
@@ -758,23 +781,39 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     fn: (_s, { runId, params, mapped, error, timeoutMs }) => ({ runId, params, mapped, error, timeoutMs }),
     target: scheduleRetry,
   });
+  type FailSourceState = {
+    laneIds: ReadonlyMap<string, number>;
+    attempts: number;
+    timesSrc: number | null;
+    strat: ConcurrencyStrategy | null;
+    defs: QueryDefaults;
+  };
+  const isFinalFailure = (s: FailSourceState, f: { runId: number; params: Params; error: Error }): boolean =>
+    currentIn(s, f) &&
+    !willRetry(
+      s.defs,
+      stratOf(s.strat, s.defs),
+      s.laneIds,
+      s.attempts,
+      timesOf(s.timesSrc, s.defs),
+      f.runId,
+      f.params,
+      f.error,
+    );
   sample({
     clock: failed,
     source: failSource,
-    filter: (s, f) =>
-      currentIn(s, f) &&
-      !willRetry(
-        s.defs,
-        stratOf(s.strat, s.defs),
-        s.laneIds,
-        s.attempts,
-        timesOf(s.timesSrc, s.defs),
-        f.runId,
-        f.params,
-        f.error,
-      ),
+    filter: (s, f) => isFinalFailure(s, f) && !fallbackRef,
     fn: (_s, { params, error }) => ({ params, error }),
     target: finalFail,
+  });
+  // fallback recovers the final failure into data (aborts/skips never reach this stream)
+  sample({
+    clock: failed,
+    source: failSource,
+    filter: (s, f) => isFinalFailure(s, f) && !!fallbackRef,
+    fn: (_s, { params, error }) => ({ params, result: fallbackRef!({ error, params }) }),
+    target: recovered,
   });
   sample({
     clock: failed,
@@ -825,6 +864,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     .on(staleServe, () => 'done' as const)
     .on(tagged, () => 'pending' as const)
     .on(acceptedDone, () => 'done' as const)
+    .on(recovered, () => 'done' as const)
     .on(cacheHit, () => 'done' as const)
     .on(finalFail, () => 'fail' as const)
     .reset(reset);
@@ -850,6 +890,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   $data
     .on(acceptedDone, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
+    .on(recovered, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
     .on(cacheHit, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
     .on(staleServe, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
     .on(setData, (_prev, value) => value)
@@ -859,16 +900,18 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   $error
     .on(finalFail, (_e, { params, error }) => mapError({ error, params }))
     .on(intermediateFail, (_e, { params, error }) => mapError({ error, params }))
-    .reset([tagged, acceptedDone, cacheHit, reset]);
+    .reset([tagged, acceptedDone, recovered, cacheHit, reset]);
 
   $stale
     .on(staleServe, () => true)
     .on(acceptedDone, () => false)
+    .on(recovered, () => false)
     .on(cacheHit, () => false)
     .reset(reset);
 
   $isPlaceholderData
     .on(acceptedDone, () => false)
+    .on(recovered, () => false)
     .on(cacheHit, () => false)
     .on(staleServe, () => false)
     .reset(reset);
@@ -877,7 +920,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // even if a non-abortable effect's promise is still resolving in the background.
   const $inflight = createStore(false, nm('$inflight'))
     .on(tagged, () => true)
-    .on([acceptedDone, finalFail, cacheHit], () => false)
+    .on([acceptedDone, recovered, finalFail, cacheHit], () => false)
     .on(invalidate, () => false);
   const $pending = combine($inflight, $retrying, (p, r) => p || r);
 
@@ -893,6 +936,11 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // ---- finished / lifecycle wiring ----
   sample({
     clock: acceptedDone,
+    fn: ({ params, result }) => ({ params, result: mapData({ result, params }) }),
+    target: finishedDone,
+  });
+  sample({
+    clock: recovered,
     fn: ({ params, result }) => ({ params, result: mapData({ result, params }) }),
     target: finishedDone,
   });
@@ -1026,6 +1074,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       },
       setTimeout: (ms) => {
         timeoutConst = ms;
+      },
+      setDebounce: (ms) => {
+        debounceConst = ms;
+      },
+      setFallback: (fn) => {
+        fallbackRef = fn as ((ctx: { error: Error; params: Params }) => Result) | null;
       },
       setBarrier: (b) => {
         barrierRef = b;
