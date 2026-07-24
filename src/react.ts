@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { createWatch } from 'effector';
+import { createWatch, type Unit } from 'effector';
 import { useUnit, useProvidedScope } from 'effector-react';
 import type { Query, QueryStatus, UseQueryOptions } from './types';
 
@@ -104,9 +104,9 @@ function suspenseCacheFor(scope: object): WeakMap<object, Promise<void>> {
  *  - `fail` → throws the error (caught by the nearest Error Boundary);
  *  - `done` → returns the data.
  *
- * Client-side Suspense (CSR). Scope-aware reads/triggers via effector-react,
- * but the settle signal is observed globally, so pair it with `fork` only
- * outside of concurrent SSR streaming.
+ * Client-side Suspense (CSR). Scope-aware throughout: reads/triggers via
+ * effector-react, the settle signal via a scope-bound `createWatch`. Not meant
+ * for concurrent SSR streaming.
  *
  * The suspense promise is cached per (scope, query) and dropped on settle. A query
  * holds a single state, so when several components suspend on the same query the
@@ -136,21 +136,27 @@ export function useSuspenseQuery<Params, Result, Error, Mapped>(
 
   // initial / pending → suspend until the query settles. The settle signal is
   // observed scope-correctly via createWatch (no scope -> default, same as before).
+  // Discards count as settles too: `aborted` (a dropped run reporting in), and
+  // `cancel`/`reset` themselves — for a NON-abortable effect a cancelled run's promise
+  // may never settle, so no `aborted` would ever fire. Without these the promise stays
+  // pending forever and the component hangs in the Suspense fallback; resolving lets
+  // React retry the render, where an `initial` status auto-restarts the query.
   let promise = cache.get(query as object);
   if (!promise) {
     promise = new Promise<void>((resolve) => {
-      const unwatch = createWatch({
-        unit: (query as unknown as AnyQuery).finished.finally,
-        scope: scope ?? undefined,
-        fn: () => {
-          unwatch();
-          // drop the entry HERE, not only on a `done`/`fail` render: if the component
-          // unmounted before the settle, a stale RESOLVED promise would otherwise be
-          // re-thrown on the next pending cycle — React retries it instantly, in a loop
-          cache.delete(query as object);
-          resolve();
-        },
-      });
+      const q = query as unknown as AnyQuery;
+      const unwatchers: Array<() => void> = [];
+      const settle = () => {
+        unwatchers.forEach((un) => un());
+        // drop the entry HERE, not only on a `done`/`fail` render: if the component
+        // unmounted before the settle, a stale RESOLVED promise would otherwise be
+        // re-thrown on the next pending cycle — React retries it instantly, in a loop
+        cache.delete(query as object);
+        resolve();
+      };
+      for (const unit of [q.finished.finally, q.aborted, q.cancel, q.reset] as Array<Unit<unknown>>) {
+        unwatchers.push(createWatch({ unit, scope: scope ?? undefined, fn: settle }));
+      }
     });
     cache.set(query as object, promise);
     if (status === 'initial') start(...args);
