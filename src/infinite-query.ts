@@ -205,7 +205,8 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   };
 
   const $params = createStore<Params | null>(null, nm('$params'))
-    .on(start, (_p, params) => params)
+    // `?? null`: void params arrive as undefined, which effector treats as "skip update"
+    .on(start, (_p, params) => params ?? null)
     .reset(reset);
 
   const initial: InfiniteState<PageParam, Page> = {

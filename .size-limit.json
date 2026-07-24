@@ -2,7 +2,7 @@
   {
     "name": "core (effector-refetch)",
     "path": "dist/index.mjs",
-    "limit": "10 kB",
+    "limit": "10.5 kB",
     "ignore": ["effector"]
   },
   {

@@ -1,4 +1,4 @@
-import type { EventCallable } from 'effector';
+import { is, type EventCallable } from 'effector';
 import { createQuery } from './create-query';
 import type { CreateMutationConfig, CreateMutationHandlerConfig, Mutation } from './types';
 
@@ -23,17 +23,19 @@ export function createMutation<Params, Result, Error = unknown, Mapped = Result>
   // contract / stale / etc.), so each branch is assignable to the matching
   // createQuery overload — narrowing on `'effect' in config` keeps full type
   // checking instead of an `as never` escape hatch.
-  // TAKE_EVERY by default so independent writes don't cancel each other.
+  // TAKE_EVERY by default so independent writes don't cancel each other — including
+  // the object form when only a lane `key` is given.
+  const cc = config.concurrency;
+  const concurrencyOpt =
+    cc == null
+      ? ('TAKE_EVERY' as const)
+      : typeof cc === 'object' && !is.store(cc) && cc.strategy == null
+        ? { ...cc, strategy: 'TAKE_EVERY' as const }
+        : cc;
   const query =
     'effect' in config
-      ? createQuery<Params, Result, Error, Mapped>({
-          ...config,
-          concurrency: config.concurrency ?? 'TAKE_EVERY',
-        })
-      : createQuery<Params, Result, Error, Mapped>({
-          ...config,
-          concurrency: config.concurrency ?? 'TAKE_EVERY',
-        });
+      ? createQuery<Params, Result, Error, Mapped>({ ...config, concurrency: concurrencyOpt })
+      : createQuery<Params, Result, Error, Mapped>({ ...config, concurrency: concurrencyOpt });
 
   const mutate = query.start;
 

@@ -25,6 +25,10 @@ const query = createQuery({
   - `TAKE_LATEST` (default) — new run supersedes & aborts the previous.
   - `TAKE_FIRST` — ignore new runs while one is in flight.
   - `TAKE_EVERY` — every run applies (last result wins `$data`).
+  - Object form `{ strategy?, key?: (params) => string }` adds **concurrency lanes**: runs
+    whose params map to the same key compete with each other, different lanes are
+    independent (refreshing one row doesn't cancel its neighbours). `cancel`/`reset` still
+    affect all lanes; `$data` stays single — lanes partition cancellation, not data.
 - **`retry`** — `number` or `{ times, delay?, filter?, suppressIntermediateErrors? }`. Each retry is a real effect call. Helpers: `linearDelay`, `exponentialDelay`.
 - **`cache`** — `true` or a config (see [caching](#caching)).
 - **`enabled`** — `Store<boolean>` gate; while `false`, `start`/`refresh` are skipped.
@@ -59,7 +63,7 @@ Share these across many queries with a [factory](/recipes/defaults).
 query.finished.done; //    { params, result } — a run succeeded
 query.finished.fail; //    { params, error }  — a run failed
 query.finished.finally; // { params, status: 'done' | 'fail' }
-query.aborted; //          { params } — cancel / reset / TAKE_LATEST supersede / skip
+query.aborted; //          { params, reason } — cancel / reset / TAKE_LATEST supersede / skip
 ```
 
 For **farfetched compatibility**, `finished` also exposes:
@@ -74,6 +78,11 @@ query.finished.skip; //    { params } — the `enabled` gate blocked a run
 `aborted` event still fires for **every** discarded run — skip, `cancel`, `reset`, and a
 `TAKE_LATEST` supersede — so it stays a superset of `skip`. (Unlike farfetched, `finished.finally`
 fires on `done`/`fail` only, not on skip — observe skips via `finished.skip` / `aborted`.)
+
+`aborted` carries a typed `reason` telling **why** the run was discarded:
+`'cancelled'` (explicit `cancel`/`reset`), `'superseded'` (a newer run in the same lane
+replaced it), `'take-first-busy'` (TAKE_FIRST dropped it while its lane was busy),
+`'disabled'` (the `enabled` gate was off).
 
 ## Operators
 

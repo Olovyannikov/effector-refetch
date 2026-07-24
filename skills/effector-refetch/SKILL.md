@@ -52,6 +52,7 @@ const userQuery = createQuery({
   retry: 3, // number | { times, delay, filter, suppressIntermediateErrors }
   cache: true, // true | { adapter, staleAfter, key, swr, dedupe }
   concurrency: 'TAKE_LATEST', // 'TAKE_LATEST' (default) | 'TAKE_FIRST' | 'TAKE_EVERY'
+  // or lanes: { strategy, key: (params) => string } — same-key runs compete, others independent
   // mapData, mapError, enabled (Store<boolean>), initialData, placeholderData,
   // refetchInterval (number | Store<number>), structuralSharing, name (devtools), barrier
 });
@@ -67,7 +68,7 @@ userQuery.start(1);
 `$pending`, `$stale`, `$enabled`, `$params`, `$isPlaceholderData`.
 
 **Lifecycle** (Event): `finished.done {params,result}`, `finished.fail {params,error}`,
-`finished.finally`, `aborted {params}`.
+`finished.finally`, `aborted {params, reason}` (`reason`: `'cancelled' | 'superseded' | 'take-first-busy' | 'disabled'`).
 
 **Escape hatch:** `query.__` exposes `effect`, `runFx`, `setData`, `purgeFx`, `inspect.*`.
 

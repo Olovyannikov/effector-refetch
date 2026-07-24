@@ -6,6 +6,29 @@ export type QueryStatus = 'initial' | 'pending' | 'done' | 'fail';
 
 export type ConcurrencyStrategy = 'TAKE_LATEST' | 'TAKE_FIRST' | 'TAKE_EVERY';
 
+/** Why a run ended without producing a result (payload of the `aborted` event). */
+export type AbortReason =
+  /** Explicit `cancel` / `reset` invalidated it. */
+  | 'cancelled'
+  /** A newer run in the same lane replaced it (TAKE_LATEST supersede / stale settle). */
+  | 'superseded'
+  /** TAKE_FIRST dropped it: its lane already had a run in flight. */
+  | 'take-first-busy'
+  /** The `enabled` gate was off (also emitted as `finished.skip`). */
+  | 'disabled';
+
+/**
+ * Object form of the `concurrency` option: a strategy plus an optional lane key.
+ * Runs whose params map to the same key compete with each other — supersede
+ * (TAKE_LATEST) and drop (TAKE_FIRST) apply within a lane only; runs in different
+ * lanes are independent. Note that `$data` stays single per query: lanes partition
+ * cancellation, not data — the last lane to settle wins the store.
+ */
+export interface ConcurrencyConfig<Params> {
+  strategy?: ConcurrencyStrategy | Store<ConcurrencyStrategy>;
+  key?: (params: Params) => string;
+}
+
 /**
  * An abort-aware effect produced by `createRequestFx` / `createJsonRequestFx`. It is a
  * regular `Effect<Params, Result>` — the per-run AbortSignal reaches the handler through
@@ -99,8 +122,8 @@ export interface CreateQueryConfig<Params, Result, Error, Mapped = Result> {
 
   retry?: number | RetryConfig<Error>;
   cache?: boolean | CacheConfig<Params>;
-  /** Inline accepts a reactive `Store<ConcurrencyStrategy>`. */
-  concurrency?: ConcurrencyStrategy | Store<ConcurrencyStrategy>;
+  /** Inline accepts a reactive `Store<ConcurrencyStrategy>`, or the object form with a lane `key`. */
+  concurrency?: ConcurrencyStrategy | Store<ConcurrencyStrategy> | ConcurrencyConfig<Params>;
   /** Poll: refetch every N ms after each settle, while enabled and started. `Store<number>` is reactive. 0 = off. */
   refetchInterval?: number | Store<number>;
   /** Per-attempt deadline in ms: abort the in-flight request and fail (retryable) if it exceeds it. `Store<number>` is reactive. 0 = off. */
@@ -188,7 +211,7 @@ export interface QueryInspect<Params, Mapped, Error> {
   run: Event<{ params: Params; attempt: number }>;
   done: Event<{ params: Params; result: Mapped }>;
   fail: Event<{ params: Params; error: Error }>;
-  aborted: Event<{ params: Params }>;
+  aborted: Event<{ params: Params; reason: AbortReason }>;
   cacheHit: Event<{ params: Params }>;
   cacheMiss: Event<{ params: Params }>;
   retry: Event<{ params: Params; attempt: number; error: Error }>;
@@ -197,6 +220,8 @@ export interface QueryInspect<Params, Mapped, Error> {
 /** Internal engine seams that standalone operators (retry/cache/concurrency) configure. */
 export interface QueryEngine<Params, Error> {
   setStrategy: (strategy: ConcurrencyStrategy) => void;
+  /** Lane key for concurrency: runs with the same key compete, others are independent. */
+  setLaneKey: (fn: ((params: Params) => string) | null) => void;
   setRetry: (cfg: ResolvedRetry<Error> | null) => void;
   setCache: (cfg: ResolvedCache<Params> | null) => void;
   /** Validation check: return error messages (invalid) or null (ok). */
@@ -276,7 +301,7 @@ export interface Query<Params, Result, Error, Mapped = Result> {
 
   // lifecycle
   finished: QueryFinished<Params, Mapped, Error>;
-  aborted: Event<{ params: Params }>;
+  aborted: Event<{ params: Params; reason: AbortReason }>;
 
   /** Escape hatch — "based on real effects" — plus engine seams used by operators. */
   __: {
@@ -320,8 +345,8 @@ export interface CreateMutationConfig<Params, Result, Error, Mapped = Result> {
   /** Custom validation: return true/void = ok, false or string[] = invalid. */
   validate?: (ctx: { result: Result; params: Params }) => boolean | string[] | void;
   retry?: number | RetryConfig<Error>;
-  /** Default: 'TAKE_EVERY' — independent mutations should not cancel each other. Inline accepts a reactive `Store<ConcurrencyStrategy>`. */
-  concurrency?: ConcurrencyStrategy | Store<ConcurrencyStrategy>;
+  /** Default: 'TAKE_EVERY' — independent mutations should not cancel each other. Inline accepts a reactive `Store<ConcurrencyStrategy>`, or the object form with a lane `key`. */
+  concurrency?: ConcurrencyStrategy | Store<ConcurrencyStrategy> | ConcurrencyConfig<Params>;
   /** Gate execution on a barrier (e.g. token refresh). */
   barrier?: Barrier;
   name?: string;
@@ -361,7 +386,7 @@ export interface Mutation<Params, Result, Error, Mapped = Result> {
   $params: Store<Params | null>;
 
   finished: QueryFinished<Params, Mapped, Error>;
-  aborted: Event<{ params: Params }>;
+  aborted: Event<{ params: Params; reason: AbortReason }>;
 
   __: {
     effect: QueryEffect<Params, Result, Error>;

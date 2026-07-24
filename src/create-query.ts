@@ -44,7 +44,11 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
     | CreateQueryHandlerConfig<Params, Result, Error, Mapped>
     | CreateQueryMappedConfig<Params, unknown, QuerySource | undefined, Result, Error, Mapped>,
 ): Query<Params, Result, Error, Mapped> {
-  const c = config.concurrency;
+  // concurrency: a strategy (string | Store) or the object form { strategy?, key? }
+  const cRaw = config.concurrency;
+  const cObj = cRaw != null && typeof cRaw === 'object' && !is.store(cRaw) ? cRaw : null;
+  // cObj null implies cRaw is not the object form, but TS can't see that through the ternary
+  const c = cObj ? cObj.strategy : (cRaw as Exclude<typeof cRaw, { strategy?: unknown }>);
   const r = config.retry;
   const ca = config.cache;
   const to = config.timeout;
@@ -64,6 +68,7 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
 
   // constants via the standalone operators; sourced stores already wired above
   if (!is.store(c)) concurrency(query, { strategy: c ?? 'TAKE_LATEST' });
+  if (cObj?.key) concurrency(query, { key: cObj.key });
   if (r != null) retry(query, r);
   if (ca) cache(query, ca);
   if (typeof to === 'number') query.__.setTimeout(to);
