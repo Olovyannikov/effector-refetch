@@ -20,6 +20,8 @@ export default defineConfig({
         devtools: 'src/devtools.tsx',
         'devtools-vue': 'src/devtools-vue.ts',
         'devtools-solid': 'src/devtools-solid.ts',
+        tanstack: 'src/tanstack.ts',
+        apollo: 'src/apollo.ts',
       },
       formats: ['es', 'cjs'],
       fileName: (format, entry) => `${entry}.${format === 'es' ? 'mjs' : 'cjs'}`,
