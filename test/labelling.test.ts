@@ -41,7 +41,7 @@ describe('deep devtools labelling', () => {
       'user.failed',
       'user.finalFail',
       'user.$runId',
-      'user.$attempts',
+      'user.$retryWaits',
     ]) {
       expect(names).toContain(seam);
     }

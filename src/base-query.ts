@@ -47,6 +47,8 @@ interface Run<P> {
   mapped: unknown;
   /** Per-run deadline in ms (0 = off); resolved fork-correctly at tag time. */
   timeoutMs: number;
+  /** Retries already performed for THIS run — per-run, so concurrent runs never share a budget. */
+  attempts: number;
 }
 interface ExecDone<P, R> extends Run<P> {
   result: R;
@@ -228,12 +230,20 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     ...nm('$laneIds'),
     serialize: 'ignore',
   });
-  const $attempts = createStore(0, nm('$attempts'));
-  const $retrying = createStore(false, nm('$retrying'));
+  // count of runs currently in a retry pause; $retrying derives from it, so one run's
+  // pause ending (or a debounce sleep, which has its own effect) can't clear another's
+  const $retryWaits = createStore(0, nm('$retryWaits'));
+  const $retrying = $retryWaits.map((n) => n > 0);
 
-  const sleepFx = createEffect<{ ms: number; payload: unknown }, unknown>({
-    name: evName('sleepFx'),
-    handler: ({ ms, payload }) => new Promise((res) => setTimeout(() => res(payload), ms)),
+  const sleep = ({ ms, payload }: { ms: number; payload: unknown }) =>
+    new Promise((res) => setTimeout(() => res(payload), ms));
+  const debounceSleepFx = createEffect<{ ms: number; payload: unknown }, unknown>({
+    name: evName('debounceSleepFx'),
+    handler: sleep,
+  });
+  const retrySleepFx = createEffect<{ ms: number; payload: unknown }, unknown>({
+    name: evName('retrySleepFx'),
+    handler: sleep,
   });
 
   // ---- per-scope run registry (in-flight controllers + dedupe keys) ----
@@ -291,7 +301,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const runFx = attach({
     name: ns ? `${ns}.runFx` : undefined,
     source: $runRegistry,
-    effect: async (reg, { runId, params, mapped, timeoutMs }: Run<Params>) => {
+    effect: async (reg, { runId, params, mapped, timeoutMs, attempts }: Run<Params>) => {
       const key = dedupeKey(mapped);
       if (key) reg?.inflightKeys.add(key);
       const lane = laneOf(params);
@@ -309,7 +319,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       try {
         const exec = callEffect(mapped, controller.signal);
         if (!timeoutMs || timeoutMs <= 0) {
-          return { runId, params, mapped, timeoutMs, result: await exec };
+          return { runId, params, mapped, timeoutMs, attempts, result: await exec };
         }
         // race the request against a deadline; on timeout, abort it (abortable
         // effects actually stop) and reject — the normal fail/retry path handles it
@@ -320,7 +330,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
           }, timeoutMs);
         });
         const result = (await Promise.race([exec, timedOut])) as Result;
-        return { runId, params, mapped, timeoutMs, result };
+        return { runId, params, mapped, timeoutMs, attempts, result };
       } finally {
         if (timer) clearTimeout(timer);
         if (key) reg?.inflightKeys.delete(key);
@@ -444,6 +454,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     mapped: unknown;
     result: Result;
     timeoutMs: number;
+    attempts: number;
   }>(evName('rawDone'));
   // validated success — drives $data, cache write, finished.done
   const acceptedDone = createEvent<{ params: Params; mapped: unknown; result: Result }>(
@@ -629,7 +640,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     target: toRun,
   });
 
-  // tag with a fresh runId, reset attempts, then execute the real effect
+  // tag with a fresh runId (attempts start at 0), then execute the real effect
   const tagged = sample({
     clock: toRun,
     source: { id: $runId, timeout: $timeoutSrc, defs: $queryDefaults },
@@ -638,11 +649,11 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       params: r.params,
       mapped: r.mapped,
       timeoutMs: timeoutOf(timeout, defs),
+      attempts: 0,
     }),
   });
   $runId.on(tagged, (_id, t) => t.runId);
   $laneIds.on(tagged, (map, t) => new Map(map).set(laneOf(t.params), t.runId));
-  $attempts.on(tagged, () => 0);
   // TAKE_LATEST: abort the superseded in-flight request OF THIS LANE before the new one starts
   sample({
     clock: tagged,
@@ -651,9 +662,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     fn: (_s, t) => laneOf(t.params),
     target: abortInFlightFx,
   });
-  // debounce: hold the tagged run in sleepFx; the shared wake-up sample below re-checks
-  // lane currency, so a newer run started during the wait drops this one BEFORE the
-  // network (a true debounce under TAKE_LATEST). No debounce -> straight to the effect.
+  // debounce: hold the tagged run in debounceSleepFx; the shared wake-up sample below
+  // re-checks lane currency, so a newer run started during the wait drops this one BEFORE
+  // the network (a true debounce under TAKE_LATEST). No debounce -> straight to the effect.
   sample({
     clock: tagged,
     source: $debounceSrc,
@@ -666,7 +677,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     source: $debounceSrc,
     filter: (d) => debounceOf(d) > 0,
     fn: (d, t): { ms: number; payload: unknown } => ({ ms: debounceOf(d), payload: t }),
-    target: sleepFx,
+    target: debounceSleepFx,
   });
 
   $params
@@ -685,6 +696,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       mapped: result.mapped,
       result: result.result,
       timeoutMs: result.timeoutMs,
+      attempts: result.attempts,
     }),
     target: rawDone,
   });
@@ -726,6 +738,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     mapped: unknown;
     error: Error;
     timeoutMs: number;
+    attempts: number;
   }>(evName('failed'));
 
   // validation gate: a current-run success must pass the contract / validate fn,
@@ -745,12 +758,13 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   sample({
     clock: checked,
     filter: ({ errors }) => errors !== null,
-    fn: ({ runId, params, mapped, result, timeoutMs, errors }) => ({
+    fn: ({ runId, params, mapped, result, timeoutMs, attempts, errors }) => ({
       runId,
       params,
       mapped,
       error: new ValidationError(errors ?? [], result) as unknown as Error,
       timeoutMs,
+      attempts,
     }),
     target: failed,
   });
@@ -763,22 +777,20 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       mapped: params.mapped,
       error,
       timeoutMs: params.timeoutMs,
+      attempts: params.attempts,
     }),
     target: failed,
   });
 
   const failSource = {
     laneIds: $laneIds,
-    attempts: $attempts,
     timesSrc: $retryTimesSrc,
     strat: $strategySrc,
     defs: $queryDefaults,
   };
-  // ONE atomic verdict per failure, split by filters below. Deciding retry/final/stale
-  // in a single fn against a single source snapshot is load-bearing: separate samples
-  // would race — the retry branch bumps $attempts within the same propagation, and a
-  // later filter reading the bumped value spuriously double-fires finished.fail on the
-  // second-to-last attempt.
+  // ONE atomic verdict per failure, split by filters below (deciding retry/final/stale
+  // against a single snapshot avoids same-propagation races between the branches).
+  // Attempts ride in the failure payload itself — per-run, never shared state.
   const failVerdict = sample({
     clock: failed,
     source: failSource,
@@ -787,7 +799,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         s.defs,
         stratOf(s.strat, s.defs),
         s.laneIds,
-        s.attempts,
+        f.attempts,
         timesOf(s.timesSrc, s.defs),
         f.runId,
         f.params,
@@ -812,6 +824,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       mapped: f.mapped,
       error: f.error,
       timeoutMs: f.timeoutMs,
+      attempts: f.attempts,
     }),
     target: scheduleRetry,
   });
@@ -835,20 +848,27 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     target: aborted,
   });
 
-  // retry: bump attempts, wait, re-run the same runId (unless superseded meanwhile)
-  $attempts.on(scheduleRetry, (n) => n + 1);
-  $retrying.on(scheduleRetry, () => true);
+  // retry: wait, then re-run the same runId with attempts+1 (unless superseded meanwhile)
+  $retryWaits.on(scheduleRetry, (n) => n + 1).on(retrySleepFx.finally, (n) => Math.max(0, n - 1));
   sample({
     clock: scheduleRetry,
-    source: { attempt: $attempts, defs: $queryDefaults },
-    fn: ({ attempt, defs }, s): { ms: number; payload: unknown } => ({
-      ms: (retryOf(defs)?.delay ?? (() => 0))(attempt),
-      payload: { runId: s.runId, params: s.params, mapped: s.mapped, timeoutMs: s.timeoutMs } as Run<Params>,
+    source: $queryDefaults,
+    fn: (defs, s): { ms: number; payload: unknown } => ({
+      // 1-based attempt number for the delay fn, from THIS run's own counter
+      ms: (retryOf(defs)?.delay ?? (() => 0))(s.attempts + 1),
+      payload: {
+        runId: s.runId,
+        params: s.params,
+        mapped: s.mapped,
+        timeoutMs: s.timeoutMs,
+        attempts: s.attempts + 1,
+      } as Run<Params>,
     }),
-    target: sleepFx,
+    target: retrySleepFx,
   });
+  const sleepWake = merge([debounceSleepFx.doneData, retrySleepFx.doneData]);
   sample({
-    clock: sleepFx.doneData,
+    clock: sleepWake,
     source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
     filter: (s, payload) => currentIn(s, payload as Run<Params>),
     fn: (_s, payload) => payload as Run<Params>,
@@ -858,13 +878,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // emit aborted so observers (and startAsync deferreds) learn about it instead of
   // waiting forever
   sample({
-    clock: sleepFx.doneData,
+    clock: sleepWake,
     source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
     filter: (s, payload) => !currentIn(s, payload as Run<Params>),
     fn: (s, payload) => staleAbort(s, payload as Run<Params>),
     target: aborted,
   });
-  $retrying.reset(sleepFx.done);
 
   // surface intermediate (retried) failures only when suppression is off
   sample({
@@ -878,7 +897,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const invalidate = merge([reset, cancel]);
   $runId.on(invalidate, (id) => id + 1);
   $laneIds.reset(invalidate); // wipe currency in every lane -> pending settles report 'cancelled'
-  $retrying.reset(invalidate);
+  $retryWaits.reset(invalidate);
   sample({ clock: invalidate, fn: () => null, target: abortInFlightFx });
 
   // ---- state stores ----
@@ -1011,7 +1030,6 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     cacheHit,
     lookupDone: lookupFx.doneData,
     scheduleRetry,
-    $attempts,
     evName,
   });
 
