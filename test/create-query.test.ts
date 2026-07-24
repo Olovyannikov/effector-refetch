@@ -131,6 +131,6 @@ describe('createQuery — farfetched-compatible finished', () => {
     await allSettled(q.start, { scope, params: 7 });
     expect(scope.getState(q.$status)).toBe('initial');
     expect(skipped).toEqual([{ params: 7 }]);
-    expect(aborted).toEqual([{ params: 7 }]); // aborted stays the broader superset
+    expect(aborted).toEqual([{ params: 7, reason: 'disabled' }]); // aborted stays the broader superset
   });
 });

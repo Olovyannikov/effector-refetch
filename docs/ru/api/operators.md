@@ -15,6 +15,54 @@ import { concurrency, retry, cache, timeout, keepFresh, applyBarrier } from 'eff
 concurrency(searchQuery, { strategy: 'TAKE_LATEST' }); // новый прогон отменяет предыдущий
 ```
 
+Добавьте **ключ полосы** (lane), чтобы прогоны конкурировали только с прогонами того же
+ключа — обновление одной строки таблицы больше не отменяет соседние:
+
+```ts
+concurrency(rowQuery, { strategy: 'TAKE_LATEST', key: ({ rowId }) => String(rowId) });
+```
+
+Вытеснение (`TAKE_LATEST`) и отбрасывание при занятости (`TAKE_FIRST`) действуют **внутри
+полосы**; `cancel` / `reset` по-прежнему затрагивают все полосы. `$data` у query остаётся
+один — полосы разделяют отмену, а не данные (последний завершившийся прогон записывает
+стор; данные по ключу храните в кэшируемом query с ключом из params).
+
+Попробуйте вживую — три слота покедекса поверх настоящего PokeAPI, каждый слот — полоса:
+
+<LanesDemo>
+<template #code>
+
+```ts
+import { createQuery, createRequestFx } from 'effector-refetch';
+
+const fetchPokemonFx = createRequestFx(async ({ slot, id }: { slot: number; id: number }, { signal }) => {
+  const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`, { signal });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return { slot, id, name: data.name, sprite: data.sprites.front_default };
+});
+
+const pokedexQuery = createQuery({
+  effect: fetchPokemonFx,
+  // полоса на слот: обновление слота 2 не прерывает запрос слота 1
+  concurrency: { strategy: 'TAKE_LATEST', key: ({ slot }) => String(slot) },
+});
+
+pokedexQuery.aborted.watch(({ params, reason }) => {
+  // reason: 'superseded' | 'cancelled' | 'take-first-busy' | 'disabled'
+  console.log(`слот ${params.slot} отброшен: ${reason}`);
+});
+
+pokedexQuery.start({ slot: 1, id: 25 }); // pikachu
+pokedexQuery.start({ slot: 2, id: 1 }); //  bulbasaur — слот 1 не тронут
+pokedexQuery.start({ slot: 2, id: 4 }); //  charmander — вытесняет ТОЛЬКО bulbasaur
+```
+
+</template>
+</LanesDemo>
+
+Запускаемый скрипт: [`examples/concurrency-lanes.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/concurrency-lanes.ts).
+
 ## `retry`
 
 `retry(query, 3)` или конфиг. Каждая попытка — реальный вызов эффекта; `filter` решает, какие сбои

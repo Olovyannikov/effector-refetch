@@ -17,5 +17,9 @@ export default {
       'DevtoolsWidget',
       defineClientComponent(() => import('./components/DevtoolsWidget.vue')),
     );
+    app.component(
+      'LanesDemo',
+      defineClientComponent(() => import('./components/LanesDemo.vue')),
+    );
   },
 };
