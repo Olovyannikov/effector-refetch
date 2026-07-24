@@ -62,7 +62,8 @@ const userQuery = createQuery({
 userQuery.start(1);
 ```
 
-**Triggers** (EventCallable): `start`, `refresh` (force, ignore cache freshness), `refetch`
+**Triggers**: `start`, `startAsync` (a real Effect — `await q.startAsync(p)` resolves with data,
+rejects on failure/discard; `mutateAsync` on mutations), `refresh` (force, ignore cache freshness), `refetch`
 (alias of refresh), `reset` (→ initial + cancel), `cancel` (abort in-flight, keep data),
 `prefetch` (warm cache only).
 
