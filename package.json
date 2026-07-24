@@ -131,6 +131,12 @@
       "solid": [
         "./dist/solid.d.ts"
       ],
+      "tanstack": [
+        "./dist/tanstack.d.ts"
+      ],
+      "apollo": [
+        "./dist/apollo.d.ts"
+      ],
       "devtools": [
         "./dist/devtools.d.ts"
       ],
