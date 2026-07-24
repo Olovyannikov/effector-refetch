@@ -136,28 +136,30 @@ export interface WebStorageCacheOptions {
 function webStorageCache(getStorage: () => Storage, options: WebStorageCacheOptions): CacheAdapter {
   const { prefix = 'eq:', version, maxAge, now = () => Date.now() } = options;
   const k = (key: string) => `${prefix}${key}`;
+  const evict = (key: string) => {
+    try {
+      getStorage().removeItem(k(key));
+    } catch {
+      /* ignore */
+    }
+  };
   return {
     get: (key) => {
       try {
         const raw = getStorage().getItem(k(key));
         if (!raw) return null;
         const rec = JSON.parse(raw) as StoredRecord;
-        if (version !== undefined && rec.v !== version) {
-          getStorage().removeItem(k(key));
-          return null;
-        }
-        if (maxAge != null && now() - rec.storedAt >= maxAge) {
-          getStorage().removeItem(k(key));
+        if (
+          (version !== undefined && rec.v !== version) ||
+          (maxAge != null && now() - rec.storedAt >= maxAge)
+        ) {
+          evict(key);
           return null;
         }
         return { value: rec.value, storedAt: rec.storedAt };
       } catch {
         // unparseable/corrupt entry: evict it so it can't poison future reads
-        try {
-          getStorage().removeItem(k(key));
-        } catch {
-          /* ignore */
-        }
+        evict(key);
         return null;
       }
     },
@@ -169,13 +171,7 @@ function webStorageCache(getStorage: () => Storage, options: WebStorageCacheOpti
         /* quota / serialization — ignore */
       }
     },
-    remove: (key) => {
-      try {
-        getStorage().removeItem(k(key));
-      } catch {
-        /* ignore */
-      }
-    },
+    remove: evict,
     purge: () => {
       try {
         const storage = getStorage();
