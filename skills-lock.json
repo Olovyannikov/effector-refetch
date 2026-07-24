@@ -12,6 +12,18 @@
       "sourceType": "github",
       "skillPath": "skills/effector-fsd/SKILL.md",
       "computedHash": "614a9a7de5024db3ac7ee2ba17dc38a0e55bbf7dedbebe029011fc4e297ef649"
+    },
+    "netlify-config": {
+      "source": "netlify/context-and-tools",
+      "sourceType": "github",
+      "skillPath": "skills/netlify-config/SKILL.md",
+      "computedHash": "fb65a814b7bb2fa3ede3d8985d7dbe22e7c47dbda5f1b3d55422f5ee9c9bd0f7"
+    },
+    "netlify-deploy": {
+      "source": "netlify/context-and-tools",
+      "sourceType": "github",
+      "skillPath": "skills/netlify-deploy/SKILL.md",
+      "computedHash": "246157ea76b04f083b038080869bcff9c4b3ecb3ef78e38f1da7c787e9e6fe44"
     }
   }
 }
