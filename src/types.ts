@@ -336,7 +336,11 @@ export interface Query<Params, Result, Error, Mapped = Result> {
   /** Escape hatch — "based on real effects" — plus engine seams used by operators. */
   __: {
     effect: QueryEffect<Params, Result, Error>;
-    runFx: Effect<{ runId: number; params: Params; mapped: unknown; timeoutMs: number }, any, Error>;
+    runFx: Effect<
+      { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number },
+      any,
+      Error
+    >;
     inspect: QueryInspect<Params, Mapped, Error>;
     /** Imperative write to `$data` (see `setQueryData`). */
     setData: EventCallable<Mapped | null>;
@@ -426,7 +430,11 @@ export interface Mutation<Params, Result, Error, Mapped = Result> {
 
   __: {
     effect: QueryEffect<Params, Result, Error>;
-    runFx: Effect<{ runId: number; params: Params; mapped: unknown; timeoutMs: number }, any, Error>;
+    runFx: Effect<
+      { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number },
+      any,
+      Error
+    >;
   };
 
   '@@unitShape': () => MutationUnitShape<Params, Mapped, Error>;

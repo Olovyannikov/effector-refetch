@@ -12,16 +12,26 @@ export interface IntrospectionContext<Params, Error> {
   requested: Event<{ params: Params; mapped: unknown; fresh: boolean }>;
   // Done/Error generics are irrelevant here (used only as a clock for its params);
   // `any` avoids effector's invariant `use` check on the Effect's result type.
-  runFx: Effect<{ runId: number; params: Params; mapped: unknown; timeoutMs: number }, any, Error>;
+  runFx: Effect<
+    { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number },
+    any,
+    Error
+  >;
   cacheHit: Event<{ params: Params; result: unknown }>;
   lookupDone: Event<{ fresh: boolean; params: Params; entry: unknown }>;
-  scheduleRetry: Event<{ runId: number; params: Params; mapped: unknown; error: Error; timeoutMs: number }>;
-  $attempts: Store<number>;
+  scheduleRetry: Event<{
+    runId: number;
+    params: Params;
+    mapped: unknown;
+    error: Error;
+    timeoutMs: number;
+    attempts: number;
+  }>;
   evName: (suffix: string) => string | undefined;
 }
 
 export function setupIntrospection<Params, Error>(ctx: IntrospectionContext<Params, Error>) {
-  const { requested, runFx, cacheHit, lookupDone, scheduleRetry, $attempts, evName } = ctx;
+  const { requested, runFx, cacheHit, lookupDone, scheduleRetry, evName } = ctx;
 
   const inspectStart = createEvent<{ params: Params }>(evName('inspect.start'));
   const inspectRun = createEvent<{ params: Params; attempt: number }>(evName('inspect.run'));
@@ -32,10 +42,10 @@ export function setupIntrospection<Params, Error>(ctx: IntrospectionContext<Para
   );
 
   sample({ clock: requested, fn: ({ params }) => ({ params }), target: inspectStart });
+  // per-run attempt counters ride in the payloads — no shared store to race on
   sample({
     clock: runFx,
-    source: $attempts,
-    fn: (attempt, run) => ({ params: run.params, attempt }),
+    fn: (run) => ({ params: run.params, attempt: run.attempts }),
     target: inspectRun,
   });
   sample({ clock: cacheHit, fn: ({ params }) => ({ params }), target: inspectCacheHit });
@@ -47,8 +57,7 @@ export function setupIntrospection<Params, Error>(ctx: IntrospectionContext<Para
   });
   sample({
     clock: scheduleRetry,
-    source: $attempts,
-    fn: (attempt, s) => ({ params: s.params, attempt, error: s.error }),
+    fn: (s) => ({ params: s.params, attempt: s.attempts + 1, error: s.error }),
     target: inspectRetry,
   });
 
