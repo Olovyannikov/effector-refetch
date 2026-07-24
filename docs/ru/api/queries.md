@@ -59,6 +59,23 @@ const query = createQuery({
 
 Разделите это между многими запросами через [фабрику](/ru/recipes/defaults).
 
+## Императивный запуск: `startAsync`
+
+`query.startAsync` — настоящий `Effect<Params, Data>`: запустить и дождаться исхода:
+
+```ts
+const user = await userQuery.startAsync(1); // резолвится маппированными данными
+// реджектится ошибкой рана или Error с AbortReason при отбрасывании
+```
+
+- **React/Vue/Solid**: `useUnit(query.startAsync)` возвращает scope-bound функцию с промисом —
+  идеально для submit-хэндлеров.
+- **Тесты/SSR**: `(await allSettled(query.startAsync, { scope, params })).value` — данные.
+- У мутаций есть алиас `mutateAsync`: `await createTodo.mutateAsync(text)`.
+- Вызовы сопоставляются с завершениями по params (глубокое равенство, старейший первым):
+  два scope с ОДИНАКОВЫМИ params в один момент могут обменяться результатами — там, где
+  это важно, используйте `allSettled` + `scope.getState`.
+
 ## События жизненного цикла
 
 ```ts

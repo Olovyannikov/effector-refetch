@@ -284,6 +284,7 @@ export type QueryUnitShape<Params, Mapped, Error> = {
   params: Store<Params | null>;
   isPlaceholderData: Store<boolean>;
   start: EventCallable<Params>;
+  startAsync: Effect<Params, Mapped>;
   refetch: EventCallable<Params>;
   refresh: EventCallable<Params>;
   reset: EventCallable<void>;
@@ -293,6 +294,16 @@ export type QueryUnitShape<Params, Mapped, Error> = {
 export interface Query<Params, Result, Error, Mapped = Result> {
   // triggers
   start: EventCallable<Params>;
+  /**
+   * Imperative start: a real `Effect<Params, Mapped>` that resolves with this run's
+   * mapped data and rejects on failure or discard ({@link AbortReason} in the message).
+   * `useUnit(query.startAsync)` gives a scope-bound promise-returning function; in tests,
+   * `(await allSettled(query.startAsync, { scope, params })).value` is the data.
+   * Concurrent calls are matched to settles by params (deep equality) — two scopes
+   * running identical params at the same instant may swap results; use `allSettled` +
+   * `scope.getState` where that matters.
+   */
+  startAsync: Effect<Params, Mapped>;
   /** Re-run, bypassing cache freshness. */
   refresh: EventCallable<Params>;
   /** Alias of `refresh`, for the familiar `refetch` name. */
@@ -386,7 +397,9 @@ export type MutationUnitShape<Params, Mapped, Error> = {
   pending: Store<boolean>;
   params: Store<Params | null>;
   start: EventCallable<Params>;
+  startAsync: Effect<Params, Mapped>;
   mutate: EventCallable<Params>;
+  mutateAsync: Effect<Params, Mapped>;
   reset: EventCallable<void>;
   cancel: EventCallable<void>;
 };
@@ -395,6 +408,10 @@ export interface Mutation<Params, Result, Error, Mapped = Result> {
   start: EventCallable<Params>;
   /** Alias of `start`, reads better for writes: `userMutation.mutate(payload)`. */
   mutate: EventCallable<Params>;
+  /** Imperative start: resolves with this run's data, rejects on failure/discard. See {@link Query.startAsync}. */
+  startAsync: Effect<Params, Mapped>;
+  /** Alias of `startAsync`: `await userMutation.mutateAsync(payload)`. */
+  mutateAsync: Effect<Params, Mapped>;
   reset: EventCallable<void>;
   cancel: EventCallable<void>;
 
