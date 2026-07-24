@@ -4,12 +4,17 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
-# Production docs deploy via GitHub Actions owns the Pages site (one source only),
-# so PR previews are uploaded as a downloadable artifact instead of a live URL.
-# (For live per-PR URLs, deploy previews to an external host like Cloudflare
-# Pages / Netlify — that needs an account + token.)
+# Live per-PR previews on Netlify: the docs are built with DOCS_BASE=/ (Netlify
+# serves from the site root, unlike GitHub Pages' /effector-refetch/) and
+# deployed to a stable per-PR alias, so the URL stays the same across pushes.
+# Requires two repository secrets:
+#   NETLIFY_AUTH_TOKEN — Netlify personal access token (User settings → Applications)
+#   NETLIFY_SITE_ID    — API ID of the Netlify site (Site settings → General)
+# The build artifact is still uploaded as a fallback for when secrets are absent
+# (they are, for example, on PRs from forks).
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency: preview-${{ github.ref }}
 
@@ -25,8 +30,47 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm docs:build
+        env:
+          DOCS_BASE: /
       - uses: actions/upload-artifact@v7
         with:
           name: docs-preview-pr-${{ github.event.number }}
           path: docs/.vitepress/dist
           retention-days: 7
+
+      - name: Deploy to Netlify
+        id: netlify
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "Netlify secrets are not configured — artifact-only preview." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npx --yes netlify-cli@23 deploy \
+            --dir docs/.vitepress/dist \
+            --alias "pr-${{ github.event.number }}" \
+            --message "PR #${{ github.event.number }} @ ${{ github.event.pull_request.head.sha }}" \
+            --json > deploy.json
+          url=$(jq -r '.deploy_url' deploy.json)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Docs preview: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment preview URL on the PR
+        if: steps.netlify.outputs.url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ steps.netlify.outputs.url }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker="<!-- docs-preview -->"
+          printf -v body '%s\n📖 **Docs preview**: %s\n\n_Updated for %s._' "$marker" "$URL" "$SHA"
+          existing=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.number }}/comments" \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$body" > /dev/null
+          else
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.number }}/comments" -f body="$body" > /dev/null
+          fi
