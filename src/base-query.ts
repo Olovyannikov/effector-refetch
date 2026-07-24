@@ -190,7 +190,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     laneIds: ReadonlyMap<string, number>,
     runId: number,
     params: Params,
-  ) => (strategy === 'TAKE_EVERY' ? true : laneIds.get(laneOf(params)) === runId);
+  ) => (strategy === 'TAKE_EVERY' || strategy === 'QUEUE' ? true : laneIds.get(laneOf(params)) === runId);
   // why a settle lost currency: its lane was re-tagged (superseded) or wiped (cancel/reset)
   const staleReason = (laneIds: ReadonlyMap<string, number>, params: Params): AbortReason =>
     laneIds.has(laneOf(params)) ? 'superseded' : 'cancelled';
@@ -380,10 +380,95 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       return run;
     },
   });
+  // ---- QUEUE strategy: per-lane serialization ----
+  // A QUEUE run dispatches only when its lane is free; otherwise it waits in a
+  // per-lane FIFO. One run per propagation means the pure counters below are
+  // race-free: a second start always reads the first one's updated count.
+  const dispatch = createEvent<Run<Params>>(evName('dispatch'));
+  /** settled or dropped dispatched run — frees its lane */
+  const laneFreed = createEvent<Run<Params>>(evName('laneFreed'));
+  const $laneActive = createStore<ReadonlyMap<string, number>>(new Map(), {
+    ...nm('$laneActive'),
+    serialize: 'ignore',
+  });
+  const $laneQueue = createStore<ReadonlyMap<string, Array<Run<Params>>>>(new Map(), {
+    ...nm('$laneQueue'),
+    serialize: 'ignore',
+  });
+  const isQueue = (strat: ConcurrencyStrategy | null, defs: QueryDefaults) =>
+    stratOf(strat, defs) === 'QUEUE';
+  const activeOf = (map: ReadonlyMap<string, number>, lane: string) => map.get(lane) ?? 0;
+
+  const queueGate = { active: $laneActive, strat: $strategySrc, defs: $queryDefaults };
+  sample({
+    clock: toRunFx,
+    source: queueGate,
+    filter: ({ active, strat, defs }, run) =>
+      !isQueue(strat, defs) || activeOf(active, laneOf(run.params)) === 0,
+    fn: (_s, run) => run,
+    target: dispatch,
+  });
+  const enqueued = sample({
+    clock: toRunFx,
+    source: queueGate,
+    filter: ({ active, strat, defs }, run) =>
+      isQueue(strat, defs) && activeOf(active, laneOf(run.params)) > 0,
+    fn: (_s, run) => run,
+  });
+  $laneQueue.on(enqueued, (map, run) => {
+    const lane = laneOf(run.params);
+    return new Map(map).set(lane, [...(map.get(lane) ?? []), run]);
+  });
+
+  // accounting (QUEUE lanes only): +1 on dispatch, -1 when the run settles or is dropped
+  const dispatchCounted = sample({
+    clock: dispatch,
+    source: { strat: $strategySrc, defs: $queryDefaults },
+    filter: ({ strat, defs }) => isQueue(strat, defs),
+    fn: (_s, run) => run,
+  });
+  $laneActive
+    .on(dispatchCounted, (map, run) => {
+      const lane = laneOf(run.params);
+      return new Map(map).set(lane, activeOf(map, lane) + 1);
+    })
+    .on(laneFreed, (map, run) => {
+      const lane = laneOf(run.params);
+      const n = map.get(lane);
+      if (n == null) return map; // non-QUEUE runs were never counted
+      const next = new Map(map);
+      if (n <= 1) next.delete(lane);
+      else next.set(lane, n - 1);
+      return next;
+    });
+
+  // a freed lane pulls the next queued run (`<= 1`: the decrement above may apply
+  // before or after this read within the same propagation — both mean "freeing")
+  const dequeued = sample({
+    clock: laneFreed,
+    source: { queue: $laneQueue, active: $laneActive },
+    filter: ({ queue, active }, run) => {
+      const lane = laneOf(run.params);
+      return (queue.get(lane)?.length ?? 0) > 0 && activeOf(active, lane) <= 1;
+    },
+    fn: ({ queue }, run) => (queue.get(laneOf(run.params)) ?? [])[0],
+  });
+  $laneQueue.on(dequeued, (map, run) => {
+    const lane = laneOf(run.params);
+    const rest = (map.get(lane) ?? []).slice(1);
+    const next = new Map(map);
+    if (rest.length === 0) next.delete(lane);
+    else next.set(lane, rest);
+    return next;
+  });
+  sample({ clock: dequeued, target: dispatch });
+
   // no barrier attached -> straight to the effect
-  sample({ clock: toRunFx, filter: () => !barrierRef, target: runFx });
+  sample({ clock: dispatch, filter: () => !barrierRef, target: runFx });
   // barrier attached -> wait for it to open
-  sample({ clock: toRunFx, filter: () => !!barrierRef, target: barrierWaitFx });
+  sample({ clock: dispatch, filter: () => !!barrierRef, target: barrierWaitFx });
+  // lane bookkeeping for dispatched runs
+  sample({ clock: runFx.finally, fn: ({ params }) => params, target: laneFreed });
   // barrier opened: only the still-current run proceeds; a superseded/cancelled one is
   // dropped here, so it never reaches the network
   sample({
@@ -399,6 +484,13 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     filter: (s, run) => !currentIn(s, run),
     fn: staleAbort,
     target: aborted,
+  });
+  sample({
+    clock: barrierWaitFx.doneData,
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
+    filter: (s, run) => !currentIn(s, run),
+    fn: (_s, run) => run,
+    target: laneFreed,
   });
 
   const requested = createEvent<{ params: Params; mapped: unknown; fresh: boolean; broken?: unknown }>(
@@ -962,6 +1054,24 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   $laneIds.reset(invalidate); // wipe currency in every lane -> pending settles report 'cancelled'
   $retryWaits.reset(invalidate);
   sample({ clock: invalidate, fn: () => null, target: abortInFlightFx });
+  // flush queued (never-started) QUEUE runs: each reports aborted('cancelled') so
+  // observers and startAsync deferreds don't wait forever. `flushRuns` is a derived
+  // event, so the store clear below is ordered by data dependency, not registration.
+  const flushRuns = sample({
+    clock: invalidate,
+    source: $laneQueue,
+    fn: (map) => Array.from(map.values()).flat(),
+  });
+  $laneQueue.on(flushRuns, () => new Map());
+  $laneActive.reset(invalidate);
+  const flushQueueFx = createEffect({
+    name: evName('flushQueueFx'),
+    handler: (runs: Array<Run<Params>>) => {
+      // imperative event calls inside a handler are scope-bound (effector 23)
+      for (const run of runs) aborted({ params: run.params, reason: 'cancelled' });
+    },
+  });
+  sample({ clock: flushRuns, filter: (runs) => runs.length > 0, target: flushQueueFx });
 
   // ---- mapped-data stage ----
   // mapData runs ONCE per settle, under a guard: a throwing user mapper becomes a final

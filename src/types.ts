@@ -4,7 +4,7 @@ import type { Barrier } from './barrier';
 
 export type QueryStatus = 'initial' | 'pending' | 'done' | 'fail';
 
-export type ConcurrencyStrategy = 'TAKE_LATEST' | 'TAKE_FIRST' | 'TAKE_EVERY';
+export type ConcurrencyStrategy = 'TAKE_LATEST' | 'TAKE_FIRST' | 'TAKE_EVERY' | 'QUEUE';
 
 /** Why a run ended without producing a result (payload of the `aborted` event). */
 export type AbortReason =
