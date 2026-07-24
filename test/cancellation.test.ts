@@ -1,19 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { allSettled, createEffect, fork } from 'effector';
-import { createQuery, createRequestFx } from '../src';
+import { createQuery } from '../src';
+import { abortableDeferred } from './support/harness';
 
-/** Abort-aware effect that only settles when its signal aborts (rejects). */
-function abortableEffect() {
-  const signals: AbortSignal[] = [];
-  const fx = createRequestFx<number, string>(
-    (_p, { signal }) =>
-      new Promise<string>((_res, rej) => {
-        signals.push(signal);
-        signal.addEventListener('abort', () => rej(new Error('aborted')));
-      }),
-  );
-  return { fx, signals };
-}
+const abortableEffect = () => abortableDeferred<number, string>();
 
 describe('real cancellation (AbortSignal)', () => {
   it('createRequestFx produces an abort-aware effect', () => {
