@@ -34,6 +34,8 @@ const query = createQuery({
 - **`enabled`** — `Store<boolean>` gate; while `false`, `start`/`refresh` are skipped.
 - **`refetchInterval`** — poll every N ms (`number` or `Store<number>`, 0 = off). See [Auto-refetch & polling](/recipes/auto-refetch).
 - **`timeout`** — per-attempt deadline in ms (`number` or `Store<number>`, 0 = off): if a run exceeds it, the in-flight request is aborted and the run **fails** (retryable, so it composes with `retry`). Distinct from `refetchInterval` (how _often_ to poll) — `timeout` is how _long_ one attempt may take.
+- **`debounce`** — wait N ms before a run executes (`number` or `Store<number>`, 0 = off); a newer run in the same lane started during the wait supersedes it before the network — true search-as-you-type debounce under TAKE_LATEST.
+- **`fallback`** — recover a final failure (after retries) into data: a value or `({ error, params }) => value`; `$status` becomes `done`, `finished.done` fires, the cache is not written; aborts/skips exempt.
 - **`structuralSharing`** — preserve referential identity of unchanged parts of the result (fewer re-renders).
 - **`placeholderData`** — a value or `(prev) => …` shown while there's no real data; `$isPlaceholderData` is `true` until the first real result. Unlike `initialData`, it's not treated as cached.
 - **`mapData` / `mapError`** — normalize result / error before the stores.

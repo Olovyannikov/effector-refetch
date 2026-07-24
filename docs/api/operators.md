@@ -4,7 +4,16 @@ Every inline `createQuery` option is sugar over a **standalone operator** — `i
 to any query/mutation (even one built elsewhere). They're composable and tree-shakeable.
 
 ```ts
-import { concurrency, retry, cache, timeout, keepFresh, applyBarrier } from 'effector-refetch';
+import {
+  concurrency,
+  retry,
+  cache,
+  timeout,
+  debounce,
+  fallback,
+  keepFresh,
+  applyBarrier,
+} from 'effector-refetch';
 ```
 
 ## `concurrency`
@@ -95,6 +104,27 @@ exceeds it. `0` disables it. Distinct from `refetchInterval` (poll cadence).
 timeout(reportQuery, 5000); // give up a single attempt after 5s
 ```
 
+## `debounce`
+
+Wait N ms before a run executes; a newer run in the same lane started during the wait
+supersedes it **before it hits the network** — a true debounce for search-as-you-type
+under `TAKE_LATEST`. `0` disables.
+
+```ts
+debounce(searchQuery, 300); // or createQuery({ debounce: 300 })
+```
+
+## `fallback`
+
+Recover a **final** failure (after retries) into data: `$data` gets the value, `$status`
+becomes `done`, `finished.done` fires. The value is **not** written to the cache (it isn't
+server truth), and aborts/skips are exempt. Pass `null` to detach.
+
+```ts
+fallback(productsQuery, []); // empty list instead of an error screen
+fallback(profileQuery, ({ error, params }) => cachedProfileOr(params, error));
+```
+
 ## `keepFresh`
 
 Refetch the query with its **last params** whenever a `source` store changes **or** a `@@trigger`
@@ -141,7 +171,7 @@ applyBarrier(userQuery, auth);
 
 Two well-defined behaviors, by operator kind:
 
-- **Last-wins** — `concurrency` / `retry` / `cache` / `timeout` / `applyBarrier` are engine
+- **Last-wins** — `concurrency` / `retry` / `cache` / `timeout` / `debounce` / `fallback` / `applyBarrier` are engine
   _setters_: a second call **replaces** the first. `retry(q, 1); retry(q, 3)` ⇒ 3 retries;
   `applyBarrier(q, null)` detaches.
 - **Additive** — `keepFresh` / `invalidate` / `update` _add wiring_ each call: registering two

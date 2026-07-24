@@ -128,6 +128,19 @@ export interface CreateQueryConfig<Params, Result, Error, Mapped = Result> {
   refetchInterval?: number | Store<number>;
   /** Per-attempt deadline in ms: abort the in-flight request and fail (retryable) if it exceeds it. `Store<number>` is reactive. 0 = off. */
   timeout?: number | Store<number>;
+  /**
+   * Wait N ms before executing a run; a newer run in the same lane started during the
+   * wait supersedes it BEFORE it hits the network (true debounce for search-as-you-type
+   * under TAKE_LATEST). `Store<number>` is reactive. 0 = off.
+   */
+  debounce?: number | Store<number>;
+  /**
+   * Recover a FINAL failure (after retries) into data: `$data` gets the value,
+   * `$status` becomes 'done', `finished.done` fires. The value is NOT written to the
+   * cache (it isn't server truth). Aborts/skips are exempt. A function form receives
+   * `{ error, params }`.
+   */
+  fallback?: Result | ((ctx: { error: Error; params: Params }) => Result);
   /** Preserve referential identity of unchanged parts of the result (fewer re-renders). */
   structuralSharing?: boolean;
   /** Gate execution on a barrier — the effect waits while the barrier is locked (e.g. token refresh). */
@@ -151,6 +164,7 @@ export interface SourcedConfig {
   retryTimes?: Store<number>;
   staleAfter?: Store<number>;
   timeout?: Store<number>;
+  debounce?: Store<number>;
 }
 
 /** Same as CreateQueryConfig but with a plain async handler instead of an Effect. */
@@ -228,6 +242,10 @@ export interface QueryEngine<Params, Error> {
   /** Validation check: return error messages (invalid) or null (ok). */
   setValidate: (fn: ((result: unknown, params: Params) => string[] | null) | null) => void;
   setTimeout: (ms: number) => void;
+  /** Debounce delay in ms before a run executes (0 = off). */
+  setDebounce: (ms: number) => void;
+  /** Recover a final failure into data; `null` detaches. */
+  setFallback: (fn: ((ctx: { error: Error; params: Params }) => unknown) | null) => void;
   setBarrier: (barrier: Barrier | null) => void;
   /** Purge this query's cache entries (scope-aware: honors `$queryCache` and its namespacing). */
   purgeFx: EventCallable<void>;
