@@ -72,6 +72,8 @@ rejects on failure/discard; `mutateAsync` on mutations), `refresh` (force, ignor
 
 **Lifecycle** (Event): `finished.done {params,result}`, `finished.fail {params,error}`,
 `finished.finally`, `aborted {params, reason}` (`reason`: `'cancelled' | 'superseded' | 'take-first-busy' | 'disabled'`).
+The reason also rides on the run's AbortSignal: `signal.reason` is an AbortError whose
+message is the reason ('timeout' for the deadline race).
 
 **Escape hatch:** `query.__` exposes `effect`, `runFx`, `setData`, `purgeFx`, `inspect.*`.
 

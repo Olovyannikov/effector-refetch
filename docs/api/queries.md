@@ -106,6 +106,10 @@ query.finished.skip; //    { params } — the `enabled` gate blocked a run
 `TAKE_LATEST` supersede — so it stays a superset of `skip`. (Unlike farfetched, `finished.finally`
 fires on `done`/`fail` only, not on skip — observe skips via `finished.skip` / `aborted`.)
 
+The same reason also rides on the run's `AbortSignal`: handlers (and the errors their
+`fetch` throws) see `signal.reason` as an `AbortError` whose message is the reason —
+`'cancelled'`, `'superseded'`, or `'timeout'` for the deadline race.
+
 `aborted` carries a typed `reason` telling **why** the run was discarded:
 `'cancelled'` (explicit `cancel`/`reset`), `'superseded'` (a newer run in the same lane
 replaced it), `'take-first-busy'` (TAKE_FIRST dropped it while its lane was busy),

@@ -87,3 +87,45 @@ describe('real cancellation (AbortSignal)', () => {
     expect(signals[1].aborted).toBe(true);
   });
 });
+
+describe('abort reason rides on the signal (reatom-inspired)', () => {
+  it('cancel: signal.reason is an AbortError with message "cancelled"', async () => {
+    const { fx, signals } = abortableEffect();
+    const query = createQuery({ effect: fx });
+    const scope = fork();
+
+    const p = allSettled(query.start, { scope, params: 1 });
+    await allSettled(query.cancel, { scope });
+    await p;
+
+    const reason = signals[0].reason as DOMException;
+    expect(reason.name).toBe('AbortError'); // fetch/undici treat it as a plain abort
+    expect(reason.message).toBe('cancelled');
+  });
+
+  it('TAKE_LATEST supersede: signal.reason says "superseded"', async () => {
+    const { fx, signals } = abortableEffect();
+    const query = createQuery({ effect: fx, concurrency: 'TAKE_LATEST' });
+    const scope = fork();
+
+    const p1 = allSettled(query.start, { scope, params: 1 });
+    const p2 = allSettled(query.start, { scope, params: 2 });
+
+    expect((signals[0].reason as DOMException).message).toBe('superseded');
+
+    await allSettled(query.cancel, { scope });
+    await Promise.all([p1, p2]);
+  });
+
+  it('timeout: signal.reason says "timeout"', async () => {
+    const { fx, signals } = abortableEffect();
+    const query = createQuery({ effect: fx, timeout: 10 });
+    const scope = fork();
+
+    await allSettled(query.start, { scope, params: 1 });
+
+    expect(signals[0].aborted).toBe(true);
+    expect((signals[0].reason as DOMException).message).toBe('timeout');
+    expect(scope.getState(query.$status)).toBe('fail');
+  });
+});

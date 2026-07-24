@@ -296,18 +296,22 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     !!reg && (reg.laneBusy.get(laneOf(params)) ?? 0) > 0;
 
   // abort in-flight runs of one lane (TAKE_LATEST supersede) or of all lanes (null:
-  // cancel / reset) — always only within the acting scope's registry
-  const abortSet = (set?: Set<AbortController>) => {
-    set?.forEach((c) => c.abort());
+  // cancel / reset) — always only within the acting scope's registry. The WHY rides on
+  // the signal itself: handlers (and the errors their fetch throws) see
+  // `signal.reason` as an AbortError whose message is the AbortReason.
+  const abortError = (reason: AbortReason | 'timeout') => new DOMException(reason, 'AbortError');
+  const abortSet = (reason: AbortReason) => (set?: Set<AbortController>) => {
+    set?.forEach((c) => c.abort(abortError(reason)));
     set?.clear();
   };
   const abortInFlightFx = attach({
     name: evName('abortInFlightFx'),
     source: $runRegistry,
-    effect(reg: RunRegistry | null, lane: string | null) {
+    effect(reg: RunRegistry | null, { lane, reason }: { lane: string | null; reason: AbortReason }) {
       if (!reg) return;
-      if (lane == null) reg.controllers.forEach(abortSet);
-      else abortSet(reg.controllers.get(lane));
+      const abort = abortSet(reason);
+      if (lane == null) reg.controllers.forEach(abort);
+      else abort(reg.controllers.get(lane));
     },
   });
 
@@ -341,7 +345,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         // effects actually stop) and reject — the normal fail/retry path handles it
         const timedOut = new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
-            controller.abort();
+            controller.abort(abortError('timeout'));
             reject(new RequestError(`Request timed out after ${timeoutMs}ms`, { reason: 'timeout' }));
           }, timeoutMs);
         });
@@ -686,7 +690,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     clock: tagged,
     source: { strat: $strategySrc, defs: $queryDefaults },
     filter: ({ strat, defs }) => stratOf(strat, defs) === 'TAKE_LATEST',
-    fn: (_s, t) => laneOf(t.params),
+    fn: (_s, t) => ({ lane: laneOf(t.params), reason: 'superseded' as const }),
     target: abortInFlightFx,
   });
   // debounce: hold the tagged run in debounceSleepFx; the shared wake-up sample below
@@ -961,7 +965,11 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   $runId.on(invalidate, (id) => id + 1);
   $laneIds.reset(invalidate); // wipe currency in every lane -> pending settles report 'cancelled'
   $retryWaits.reset(invalidate);
-  sample({ clock: invalidate, fn: () => null, target: abortInFlightFx });
+  sample({
+    clock: invalidate,
+    fn: () => ({ lane: null, reason: 'cancelled' as const }),
+    target: abortInFlightFx,
+  });
 
   // ---- mapped-data stage ----
   // mapData runs ONCE per settle, under a guard: a throwing user mapper becomes a final
