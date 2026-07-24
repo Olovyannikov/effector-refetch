@@ -139,7 +139,10 @@ export function fallback<Q extends AnyQuery>(
  * `triggers` accepts anything implementing the `@@trigger` protocol (our own
  * queries/mutations, farfetched-compatible triggers, withease's web-API triggers)
  * or a plain effector `Event`. Each trigger's `setup` is fired once when wired
- * (it stays active for the app's lifetime — no teardown).
+ * (it stays active for the app's lifetime — no teardown). NOTE: `setup()` is a
+ * raw no-scope call — external triggers that wire scope-bound listeners inside
+ * `setup` will only be active in the default scope; in forked apps fire the
+ * trigger's setup yourself via `allSettled` where scope matters.
  *
  * No-op until the query has run (`status !== 'initial'`) and while disabled.
  */

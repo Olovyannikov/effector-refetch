@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { useUnit } from 'effector-react';
+import { useUnit, useProvidedScope } from 'effector-react';
 import type { Query, QueryStatus } from './types';
 import { attachQueryLogger, type QueryLogEntry } from './inspect';
 
@@ -116,14 +116,18 @@ function QueryDetail({ name, query }: { name: string; query: AnyQuery }) {
     params: unknown;
   };
   const [log, setLog] = useState<QueryLogEntry[]>([]);
+  // scope-aware: in a forked app the panel reads provider-scoped state, so the log
+  // must come from the same scope (a scope-blind logger would mix every fork's runs)
+  const scope = useProvidedScope();
 
   useEffect(() => {
     setLog([]);
     return attachQueryLogger(query, {
       name,
+      scope: scope ?? undefined,
       handler: (entry) => setLog((prev) => [...prev.slice(-49), entry]),
     });
-  }, [query, name]);
+  }, [query, name, scope]);
 
   return (
     <div style={{ flex: 1, padding: 12, overflow: 'auto' }}>

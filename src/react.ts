@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createWatch, type Unit } from 'effector';
 import { useUnit, useProvidedScope } from 'effector-react';
 import type { Query, QueryStatus, UseQueryOptions } from './types';
@@ -63,10 +63,14 @@ export function useQuery<Params, Result, Error, Mapped>(
     cancel: query.cancel,
   });
 
-  // refetch-stale-on-mount (with the last params), opt-in
+  // refetch-stale-on-mount (with the last params), opt-in.
+  // The ref guard keeps StrictMode's double effect-run from firing 'always' twice.
+  const mountRefetched = useRef(false);
   useEffect(() => {
     const mode = options?.refetchOnMount;
-    if (!mode || state.status === 'initial' || !state.enabled || state.params == null) return;
+    if (mountRefetched.current || !mode || state.status === 'initial' || !state.enabled) return;
+    if (state.params == null) return;
+    mountRefetched.current = true;
     if (mode === 'always' || state.stale) triggers.refetch(state.params as Params);
     // mount-only: read the values as they are when the component first subscribes
   }, []);

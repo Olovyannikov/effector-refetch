@@ -123,3 +123,18 @@ throttle({ source: refreshClicked, timeout: 1000, target: dashboard.refresh });
 
 Для типового случая используйте встроенный `refetchInterval`; берите patronum, когда нужны
 явные start/stop, debounce или throttle.
+
+::: warning Поллинг и SSR
+При `refetchInterval > 0` `allSettled(query.start, { scope })` не резолвится никогда —
+каждое завершение планирует следующий тик, и scope не переходит в покой. Для SSR (и
+тестов, ожидающих scope) сделайте интервал `Store<number>` и обнулите его в этом scope:
+
+```ts
+const $interval = createStore(30_000);
+const stats = createQuery({ effect: fetchStatsFx, refetchInterval: $interval });
+
+// SSR-scope на запрос: поллинг выключен
+const scope = fork({ values: [[$interval, 0]] });
+```
+
+:::

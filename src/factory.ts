@@ -78,8 +78,15 @@ export function createQueryFactory(defaults: QueryFactoryDefaults = {}): QueryFa
     sample({
       clock: invalidate,
       source: { params: query.$params, status: query.$status },
-      filter: ({ status }, payload) =>
-        status !== 'initial' && (payload && payload.predicate ? payload.predicate(query) : true),
+      filter: ({ status }, payload) => {
+        if (status === 'initial') return false;
+        // a throwing user predicate must not kill the invalidation tick
+        try {
+          return payload && payload.predicate ? payload.predicate(query) : true;
+        } catch {
+          return false;
+        }
+      },
       fn: ({ params }) => params as Params,
       target: query.refetch,
     });

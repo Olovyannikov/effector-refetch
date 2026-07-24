@@ -4,8 +4,11 @@ import type { AbortableEffect } from './types';
 /**
  * Side channel for the per-run AbortSignal. The engine sets it synchronously right
  * before calling the effect and the `createRequestFx` handler consumes it on its
- * first line — effector invokes handlers synchronously, so the signal survives ANY
- * composition (`attach`, wrappers) because nothing rides inside the params.
+ * first line — effector invokes handlers synchronously, so the signal survives
+ * SYNCHRONOUS composition (`attach`, sync wrappers) because nothing rides inside the
+ * params. A wrapper that defers the inner call past the synchronous stack (e.g. awaits
+ * something before calling) loses the signal: the request still runs, just without
+ * cancellation — never with a wrong signal.
  */
 let pendingSignal: AbortSignal | null = null;
 

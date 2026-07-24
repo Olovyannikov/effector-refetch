@@ -257,7 +257,12 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
 
       return deriveState(pages, pageParams);
     })
-    .on(setData, (state, pages) => ({ ...state, pages: pages ?? [] }))
+    // rederive cursors and trim pageParams so update()/optimisticUpdate() patches
+    // can't desync pages from their params (a later refetchAll reloads the REAL window)
+    .on(setData, (state, pages) => {
+      const next = pages ?? [];
+      return deriveState(next, state.pageParams.slice(0, next.length));
+    })
     .reset([reset, start]);
 
   // ---- refetchAll: reload every accumulated page, keep the window ----
@@ -283,6 +288,18 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
       return { pages, pageParams, token };
     },
   });
+
+  // a failed refetchAll must reach the exposed stores, not only finished.fail —
+  // pageQuery's own $error/$status never see the window reload
+  const $refetchAllError = createStore<Error | null>(null, nm('$refetchAllError'))
+    .on(refetchAllFx.failData, (_e, error) => error)
+    .reset([refetchAllFx, start, reset]);
+  const $error = combine($refetchAllError, pageQuery.$error, (all, page) => all ?? page);
+  const $status = combine(
+    $refetchAllError,
+    pageQuery.$status,
+    (all, page): QueryStatus => (all ? 'fail' : page),
+  );
 
   const $pages = $infinite.map((s) => s.pages);
   const $pageParams = $infinite.map((s) => s.pageParams);
@@ -394,13 +411,13 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     $pageParams,
     $hasNextPage,
     $hasPreviousPage,
-    $status: pageQuery.$status,
+    $status,
     $pending,
     $isInitialLoading,
     $isFetchingNextPage,
     $isFetchingPreviousPage,
     $isRefetching,
-    $error: pageQuery.$error,
+    $error,
     $params,
 
     finished: { done: finishedDone, fail: finishedFail },
@@ -412,13 +429,13 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
       data: $pages,
       hasNextPage: $hasNextPage,
       hasPreviousPage: $hasPreviousPage,
-      status: pageQuery.$status,
+      status: $status,
       pending: $pending,
       isInitialLoading: $isInitialLoading,
       isFetchingNextPage: $isFetchingNextPage,
       isFetchingPreviousPage: $isFetchingPreviousPage,
       isRefetching: $isRefetching,
-      error: pageQuery.$error,
+      error: $error,
       start,
       fetchNext,
       fetchPrevious,

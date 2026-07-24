@@ -122,6 +122,9 @@ function QueryDetail(props: { label: string; query: AnyQuery }) {
   const [log, setLog] = createSignal<QueryLogEntry[]>([]);
   let detach: (() => void) | undefined;
   onMount(() => {
+    // NOTE: effector-vue/solid expose no public scope accessor, so this logger is
+    // scope-blind — in a forked app it sees every scope's runs (state reads above
+    // are provider-scoped). Pass nothing; document the limitation instead.
     detach = attachQueryLogger(props.query, {
       name: props.label,
       handler: (entry) => setLog((prev) => [...prev.slice(-49), entry]),
