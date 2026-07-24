@@ -25,5 +25,17 @@ export default {
       'InfinitePokedexDemo',
       defineClientComponent(() => import('./components/InfinitePokedexDemo.vue')),
     );
+    app.component(
+      'OptimisticTodosDemo',
+      defineClientComponent(() => import('./components/OptimisticTodosDemo.vue')),
+    );
+    app.component(
+      'AuthBarrierDemo',
+      defineClientComponent(() => import('./components/AuthBarrierDemo.vue')),
+    );
+    app.component(
+      'GraphqlCountriesDemo',
+      defineClientComponent(() => import('./components/GraphqlCountriesDemo.vue')),
+    );
   },
 };

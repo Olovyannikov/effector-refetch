@@ -3,6 +3,49 @@
 Show a change instantly, roll back on failure, reconcile with the server on success —
 then optionally `invalidate` to confirm against server truth (the TanStack pattern).
 
+## Try it live
+
+A todo list over a simulated API (~600 ms delay). Adds show up instantly as a dimmed
+optimistic item, then solidify when the server commits. Flip the toggle to make the
+server reject writes and watch the rollback; fire several adds quickly — `TAKE_EVERY`
+keeps a separate optimistic layer per mutation.
+
+<OptimisticTodosDemo>
+<template #code>
+
+```ts
+import { createQuery, createMutation, optimisticUpdate } from 'effector-refetch';
+
+interface Todo {
+  id: number;
+  text: string;
+  pending?: boolean; // only on the optimistic temp item
+}
+
+const todosQuery = createQuery({ handler: fetchTodos }); // simulated API, ~600ms
+const addTodo = createMutation({
+  handler: addTodoOnServer,
+  concurrency: 'TAKE_EVERY', // parallel adds — each keeps its own optimistic layer
+});
+
+optimisticUpdate({
+  query: todosQuery,
+  on: addTodo,
+  // applied instantly on addTodo.mutate(text)
+  update: ({ data, params }) => [...(data ?? []), { id: 0, text: params, pending: true }],
+  // reconcile the temp item with the server result on success
+  commit: ({ data, result }) => (data ?? []).map((t) => (t.pending && t.text === result.text ? result : t)),
+  // rollbackOnFailure: true (default) — a failed add removes ONLY its own layer
+});
+
+addTodo.mutate('Buy milk'); // appears immediately; commits or rolls back ~600ms later
+```
+
+</template>
+</OptimisticTodosDemo>
+
+## The pattern
+
 ```ts
 import { createQuery, createMutation, optimisticUpdate, invalidate } from 'effector-refetch';
 

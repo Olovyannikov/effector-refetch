@@ -36,6 +36,55 @@ sample({
 3. Другие запросы, стартовавшие тем временем, тоже встают в очередь.
 4. `refreshTokenFx` завершается → barrier **разблокируется** → повтор (и очередь) выполняются со свежим токеном.
 
+## Попробуйте вживую
+
+Протухните токен и нажмите **Fetch ×3**: один `401` блокирует barrier, рефреш выполняется
+**один раз**, а все повторные запросы после разблокировки продолжаются и успешно завершаются:
+
+<AuthBarrierDemo>
+<template #code>
+
+```ts
+import { createEffect, sample } from 'effector';
+import { createBarrier, createQuery, createRequestFx } from 'effector-refetch';
+
+let token = 'valid';
+
+// имитация защищённого API: 401, пока токен протух
+const fetchDataFx = createRequestFx(async (id: number) => {
+  await sleep(500);
+  if (token !== 'valid') throw Object.assign(new Error('Unauthorized'), { status: 401 });
+  return { id, secret: `data-${id}` };
+});
+
+// рефреш: выполняется ОДИН раз на блокировку, barrier откроется по его завершении
+const refreshTokenFx = createEffect(async () => {
+  await sleep(1200);
+  token = 'valid';
+});
+
+const authBarrier = createBarrier({ perform: refreshTokenFx });
+
+const dataQuery = createQuery({
+  effect: fetchDataFx,
+  barrier: authBarrier, // каждый запуск — включая повторы — ждёт, пока barrier заблокирован
+  retry: 1, //             упавшая с 401 попытка доигрывается после рефреша
+  concurrency: 'TAKE_EVERY',
+});
+
+// 401 блокирует barrier → стартует refreshTokenFx, повторы встают в очередь
+sample({
+  clock: fetchDataFx.failData,
+  filter: (error) => error.status === 401,
+  target: authBarrier.lock,
+});
+
+dataQuery.start(1); // с протухшим токеном: 401 → lock → рефреш → повтор успешен
+```
+
+</template>
+</AuthBarrierDemo>
+
 ## API
 
 ```ts
