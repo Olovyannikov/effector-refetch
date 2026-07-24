@@ -130,3 +130,39 @@ describe('finished.fail with retries (regression)', () => {
     expect(fails).toEqual(['boom3']);
   });
 });
+
+describe('startAsync — dropped runs (audit regressions)', () => {
+  it('a debounce-superseded call rejects instead of hanging', async () => {
+    const fx = createEffect(async (q: string) => `r:${q}`);
+    const query = createQuery({ effect: fx, debounce: 20 });
+    const scope = fork();
+
+    const first = allSettled(query.startAsync, { scope, params: 'a' });
+    const second = allSettled(query.startAsync, { scope, params: 'ab' });
+
+    const firstOutcome = (await first) as unknown as { status: string; value: unknown };
+    expect(firstOutcome.status).toBe('fail');
+    expect(String(firstOutcome.value)).toContain('superseded');
+    expect(await second).toEqual({ status: 'done', value: 'r:ab' });
+  });
+
+  it('dedupe-coalesced calls with the same params all resolve with the winner', async () => {
+    let calls = 0;
+    const resolvers: Array<(v: string) => void> = [];
+    const fx = createEffect((_: number) => {
+      calls++;
+      return new Promise<string>((res) => resolvers.push(res));
+    });
+    const query = createQuery({ effect: fx, concurrency: 'TAKE_EVERY', cache: { dedupe: true } });
+    const scope = fork();
+
+    const a = allSettled(query.startAsync, { scope, params: 1 });
+    const b = allSettled(query.startAsync, { scope, params: 1 }); // coalesced into a's run
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(1);
+    resolvers[0]('shared');
+
+    expect(await a).toEqual({ status: 'done', value: 'shared' });
+    expect(await b).toEqual({ status: 'done', value: 'shared' });
+  });
+});

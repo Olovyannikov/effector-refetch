@@ -854,6 +854,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     fn: (_s, payload) => payload as Run<Params>,
     target: toRunFx,
   });
+  // a sleeping run (debounce wait / retry pause) that lost currency is DROPPED here —
+  // emit aborted so observers (and startAsync deferreds) learn about it instead of
+  // waiting forever
+  sample({
+    clock: sleepFx.doneData,
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
+    filter: (s, payload) => !currentIn(s, payload as Run<Params>),
+    fn: (s, payload) => staleAbort(s, payload as Run<Params>),
+    target: aborted,
+  });
   $retrying.reset(sleepFx.done);
 
   // surface intermediate (retried) failures only when suppression is off
@@ -1016,13 +1026,13 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   let asyncTokenSeq = 0;
 
   const asyncCallRegistered = createEvent<{ token: number; key: string }>(evName('asyncCallRegistered'));
-  const asyncTokenTaken = createEvent<number>(evName('asyncTokenTaken'));
+  const asyncTokensTaken = createEvent<number[]>(evName('asyncTokensTaken'));
   const $asyncTokens = createStore<Array<{ token: number; key: string }>>([], {
     ...nm('$asyncTokens'),
     serialize: 'ignore',
   })
     .on(asyncCallRegistered, (list, call) => [...list, call])
-    .on(asyncTokenTaken, (list, token) => list.filter((t) => t.token !== token));
+    .on(asyncTokensTaken, (list, tokens) => list.filter((t) => !tokens.includes(t.token)));
 
   // eslint-disable-next-line effector/enforce-effect-naming-convention -- public API name: `query.startAsync(params)` reads as a verb, the Fx suffix is an internal convention
   const startAsync = createEffect<Params, Mapped>({
@@ -1039,12 +1049,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   const settleAsyncFx = createEffect({
     name: evName('settleAsyncFx'),
-    handler: ({ token, ok, value }: { token: number; ok: boolean; value: unknown }) => {
-      const deferred = asyncDeferreds.get(token);
-      asyncDeferreds.delete(token);
-      if (!deferred) return;
-      if (ok) deferred.resolve(value as Mapped);
-      else deferred.reject(value);
+    handler: ({ tokens, ok, value }: { tokens: number[]; ok: boolean; value: unknown }) => {
+      for (const token of tokens) {
+        const deferred = asyncDeferreds.get(token);
+        asyncDeferreds.delete(token);
+        if (!deferred) continue;
+        if (ok) deferred.resolve(value as Mapped);
+        else deferred.reject(value);
+      }
     },
   });
 
@@ -1053,9 +1065,18 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     const key = stableStringify(params);
     return list.find((t) => t.key === key);
   };
+  const matchTokens = (list: Array<{ token: number; key: string }>, params: Params) => {
+    const key = stableStringify(params);
+    return list.filter((t) => t.key === key).map((t) => t.token);
+  };
+  // Real settles resolve EVERY pending call with these params — dedupe coalesces several
+  // startAsync calls into one run, and all of them deserve the winner's outcome. Aborts
+  // take only the OLDEST matching call: a superseded duplicate must not reject the newer
+  // caller whose replacement run is still flying.
   const wireSettle = <P extends { params: Params }>(
     clock: Event<P>,
     ok: boolean,
+    all: boolean,
     toValue: (payload: P) => unknown,
   ): void => {
     const matched = sample({
@@ -1063,17 +1084,17 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       source: $asyncTokens,
       filter: (list, { params }) => !!matchToken(list, params),
       fn: (list, payload) => ({
-        token: matchToken(list, payload.params)!.token,
+        tokens: all ? matchTokens(list, payload.params) : [matchToken(list, payload.params)!.token],
         ok,
         value: toValue(payload),
       }),
     });
     sample({ clock: matched, target: settleAsyncFx });
-    sample({ clock: matched, fn: ({ token }) => token, target: asyncTokenTaken });
+    sample({ clock: matched, fn: ({ tokens }) => tokens, target: asyncTokensTaken });
   };
-  wireSettle(finishedDone, true, (p) => p.result);
-  wireSettle(finishedFail, false, (p) => p.error);
-  wireSettle(aborted, false, (p) => new Error(`startAsync: run discarded (${p.reason})`));
+  wireSettle(finishedDone, true, true, (p) => p.result);
+  wireSettle(finishedFail, false, true, (p) => p.error);
+  wireSettle(aborted, false, false, (p) => new Error(`startAsync: run discarded (${p.reason})`));
 
   const refetch = refresh;
 
