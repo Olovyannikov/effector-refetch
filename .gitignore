@@ -10,3 +10,6 @@ docs/.vitepress/dist/
 docs/public/llms.txt
 docs/public/llms-full.txt
 docs/api/reference.md
+
+# Local Netlify folder
+.netlify
