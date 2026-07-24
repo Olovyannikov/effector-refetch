@@ -25,6 +25,7 @@ const query = createQuery({
   - `TAKE_LATEST` (default) — new run supersedes & aborts the previous.
   - `TAKE_FIRST` — ignore new runs while one is in flight.
   - `TAKE_EVERY` — every run applies (last result wins `$data`).
+  - `QUEUE` — runs execute strictly one after another (per lane); failures don't break the chain.
   - Object form `{ strategy?, key?: (params) => string }` adds **concurrency lanes**: runs
     whose params map to the same key compete with each other, different lanes are
     independent (refreshing one row doesn't cancel its neighbours). `cancel`/`reset` still

@@ -18,11 +18,16 @@ import {
 
 ## `concurrency`
 
-How overlapping runs behave: `TAKE_LATEST` (default), `TAKE_FIRST`, `TAKE_EVERY`.
+How overlapping runs behave: `TAKE_LATEST` (default), `TAKE_FIRST`, `TAKE_EVERY`, `QUEUE`.
 
 ```ts
 concurrency(searchQuery, { strategy: 'TAKE_LATEST' }); // new run aborts the previous
+concurrency(saveMutation, { strategy: 'QUEUE' }); // writes run strictly one after another
 ```
+
+`QUEUE` serializes runs: the next starts only after the previous settles, failures don't
+break the chain, and `cancel`/`reset` flush the waiting runs (they abort as `'cancelled'`).
+Combined with a lane `key` the serialization is per lane.
 
 Add a **lane key** to make runs compete only with runs of the same key — refreshing one
 table row no longer cancels its neighbours:
