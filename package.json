@@ -69,6 +69,26 @@
         "default": "./dist/solid.cjs"
       }
     },
+    "./tanstack": {
+      "import": {
+        "types": "./dist/tanstack.d.ts",
+        "default": "./dist/tanstack.mjs"
+      },
+      "require": {
+        "types": "./dist/tanstack.d.cts",
+        "default": "./dist/tanstack.cjs"
+      }
+    },
+    "./apollo": {
+      "import": {
+        "types": "./dist/apollo.d.ts",
+        "default": "./dist/apollo.mjs"
+      },
+      "require": {
+        "types": "./dist/apollo.d.cts",
+        "default": "./dist/apollo.cjs"
+      }
+    },
     "./devtools": {
       "import": {
         "types": "./dist/devtools.d.ts",
@@ -110,6 +130,12 @@
       ],
       "solid": [
         "./dist/solid.d.ts"
+      ],
+      "tanstack": [
+        "./dist/tanstack.d.ts"
+      ],
+      "apollo": [
+        "./dist/apollo.d.ts"
       ],
       "devtools": [
         "./dist/devtools.d.ts"

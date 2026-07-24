@@ -21,5 +21,9 @@ export default {
       'LanesDemo',
       defineClientComponent(() => import('./components/LanesDemo.vue')),
     );
+    app.component(
+      'InfinitePokedexDemo',
+      defineClientComponent(() => import('./components/InfinitePokedexDemo.vue')),
+    );
   },
 };

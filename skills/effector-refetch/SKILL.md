@@ -130,6 +130,12 @@ const userQuery = createJsonQuery({
 GraphQL = a `POST` with `{ query, variables }` wrapped in `createRequestFx` (turn GraphQL
 `errors` into a `RequestError`). FormData/SSE/WebSocket: it's just an effect — see docs recipes.
 
+**Interop / migration:** `withTanstackCache(getClient, handler, { queryKey, staleTime })` from
+`effector-refetch/tanstack` routes a handler through a TanStack `QueryClient` (its cache/dedupe
+apply); `apolloHandler(getClient, { document, variables })` from `effector-refetch/apollo` backs a
+handler with `client.query` (normalized cache; signal via `context.fetchOptions.signal`). Both are
+structural (no deps) and lazy (`getClient` per fork). Don't combine with the query's own `cache`.
+
 ## Params mapping (static params / app state in every request)
 
 ```ts

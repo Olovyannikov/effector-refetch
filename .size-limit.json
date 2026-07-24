@@ -22,5 +22,15 @@
     "path": "dist/solid.mjs",
     "limit": "1 kB",
     "ignore": ["effector", "effector-solid", "solid-js"]
+  },
+  {
+    "name": "tanstack interop",
+    "path": "dist/tanstack.mjs",
+    "limit": "0.5 kB"
+  },
+  {
+    "name": "apollo interop",
+    "path": "dist/apollo.mjs",
+    "limit": "0.5 kB"
   }
 ]
