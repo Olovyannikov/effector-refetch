@@ -229,7 +229,18 @@ export default defineConfig({
   },
   themeConfig: {
     logo: '/logo.svg',
-    socialLinks: [{ icon: 'github', link: 'https://github.com/Olovyannikov/effector-refetch' }],
+    socialLinks: [
+      {
+        // effector's comet, like on router.effector.dev
+        icon: {
+          svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><text x="12" y="19" font-size="17" text-anchor="middle">☄️</text></svg>',
+        },
+        link: 'https://effector.dev',
+        ariaLabel: 'effector',
+      },
+      { icon: 'telegram', link: 'https://t.me/effector_ru', ariaLabel: 'effector telegram chat' },
+      { icon: 'github', link: 'https://github.com/Olovyannikov/effector-refetch' },
+    ],
     search: { provider: 'local' },
   },
   locales: {
