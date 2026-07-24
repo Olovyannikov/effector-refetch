@@ -42,12 +42,15 @@ The same shape works for TanStack Router's `loader`, or any framework that fetch
 
 Runnable: [`examples/react-router.tsx`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/react-router.tsx).
 
-## atomic-router
+## effector routers: atomic-router & @effector/router
 
-For effector's own router, `attachToRoute` is the glue: start the query when the route **opens**
-(with its params) and reset it when the route **closes** — no component effect.
+For effector's own routers, `attachToRoute` is the glue: start the query when the route
+**opens** (with its params), **re-start** it when the params change while open
+(`/users/1` → `/users/2`), and reset it when the route **closes** — no component effect.
 
-```ts
+::: code-group
+
+```ts [atomic-router]
 import { createRoute } from 'atomic-router';
 import { attachToRoute } from 'effector-refetch';
 
@@ -57,11 +60,38 @@ attachToRoute({
   route: userRoute,
   query: userQuery,
   mapParams: ({ params }) => Number(params.id), // route params → query params
+  // restartOnUpdate: true (default) — param changes re-start the query
   // resetOnClose: true (default)
 });
 ```
 
-It's structural (atomic-router isn't imported — any object with `opened`/`closed` works) and pure
-`sample` under the hood, so it's scope-correct for SSR. `mapParams` is optional when the route
-params already match the query's. Runnable:
-[`examples/atomic-router.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/atomic-router.ts).
+```ts [@effector/router]
+import { createRoute } from '@effector/router';
+import { attachToRoute } from 'effector-refetch';
+
+const userRoute = createRoute({ path: '/users/:id' }); // Route<{ id: string }>
+
+attachToRoute({
+  route: userRoute,
+  query: userQuery,
+  mapParams: (opened) => Number((opened as { params: { id: string } }).params.id),
+});
+```
+
+:::
+
+It's structural (neither router is imported — any object with `opened`/`updated`/`closed`
+works) and pure `sample` under the hood, so it's scope-correct for SSR. `mapParams` is
+optional when the route params already match the query's. For @effector/router,
+`attachToRoute` handles its "opened fires on every `open()` call" semantics: only a
+closed→open transition starts via `opened`, param changes go via `updated` — no double
+requests. Runnable:
+[`examples/atomic-router.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/atomic-router.ts),
+[`examples/effector-router.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/effector-router.ts).
+
+::: tip @effector/router's own loaders
+@effector/router also has a native readiness pattern — `chainRoute` derives a "data ready"
+route after the URL committed. `attachToRoute` is the simpler "query follows the route"
+glue; reach for `chainRoute` when the VIEW should wait for data (see
+[router.effector.dev](https://router.effector.dev/core/chain-route.html)).
+:::
