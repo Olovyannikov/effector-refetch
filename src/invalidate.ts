@@ -80,8 +80,15 @@ export function invalidate(config: InvalidateConfig): void {
     sample({
       clock,
       source: { params: query.$params, status: query.$status },
-      filter: ({ status }: { params: unknown; status: string }, payload: unknown) =>
-        status !== 'initial' && (filter ? filter(payload) : true),
+      filter: ({ status }: { params: unknown; status: string }, payload: unknown) => {
+        if (status === 'initial') return false;
+        // a throwing user predicate must not kill the trigger's propagation
+        try {
+          return filter ? filter(payload) : true;
+        } catch {
+          return false;
+        }
+      },
       fn: ({ params }: { params: unknown; status: string }) => params,
       target: query.refetch,
     });

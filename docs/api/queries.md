@@ -59,6 +59,14 @@ arrives. So when params change, the old data stays visible while the new fetch r
 
 Share these across many queries with a [factory](/recipes/defaults).
 
+::: tip Throwing callbacks are contained
+User callbacks run inside effector's pure computation graph, so a throw is converted
+instead of killing the tick: `mapParams` / `mapData` fail the run (`finished.fail`),
+`mapError` falls back to the raw error, `fallback` demotes to the plain failure,
+`validate` becomes a retryable validation failure; a throwing lane `key` degrades to the
+single lane, and throwing `connectQuery` / `invalidate` predicates count as `false`.
+:::
+
 ## Imperative start: `startAsync`
 
 `query.startAsync` is a real `Effect<Params, Data>` — start a run and `await` its outcome:

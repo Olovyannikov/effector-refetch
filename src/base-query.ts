@@ -102,6 +102,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   const mapData = config.mapData ?? (({ result }) => result as unknown as Mapped);
   const mapError = config.mapError ?? (({ error }) => error);
+  // a throwing user mapError must not kill the failure flow — fall back to the raw error
+  const mapErrorSafe = (error: Error, params: Params): Error => {
+    try {
+      return mapError({ error, params });
+    } catch {
+      return error;
+    }
+  };
 
   // per-query namespace inside a SHARED scope adapter ($queryCache): name -> effect
   // sid (stable across server/client with the effector plugin) -> creation counter
@@ -168,7 +176,15 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const retryOf = (defs: QueryDefaults) => retryRef ?? ((defs.retry ?? 0) > 0 ? DEFAULT_RETRY : null);
   // concurrency lanes: runs whose (public) params map to the same key compete with each
   // other; runs in different lanes are independent. No key -> one lane ('') = old behavior.
-  const laneOf = (params: Params): string => (laneKeyConst ? laneKeyConst(params) : '');
+  const laneOf = (params: Params): string => {
+    if (!laneKeyConst) return '';
+    // a throwing user key must not kill the propagation — degrade to the single lane
+    try {
+      return laneKeyConst(params);
+    } catch {
+      return '';
+    }
+  };
   const isCurrent = (
     strategy: ConcurrencyStrategy,
     laneIds: ReadonlyMap<string, number>,
@@ -385,29 +401,40 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     target: aborted,
   });
 
-  const requested = createEvent<{ params: Params; mapped: unknown; fresh: boolean }>(evName('requested'));
+  const requested = createEvent<{ params: Params; mapped: unknown; fresh: boolean; broken?: unknown }>(
+    evName('requested'),
+  );
   // lazily create this scope's run registry before anything can need it: effects read
   // their attached source at effect priority, after this pure update has applied
   sample({ clock: requested, target: ensureRegistry });
-  // mapParams is applied HERE, with the source store sampled fork-correctly
+  // mapParams is applied HERE, with the source store sampled fork-correctly. A throwing
+  // mapParams must not kill the propagation: the run is converted into a final failure
+  // (routed below) instead of silently never starting.
+  const mapOfSafe = (params: Params, src: unknown, fresh: boolean) => {
+    try {
+      return { params, mapped: mapOf(params, src), fresh, broken: null as unknown };
+    } catch (error) {
+      return { params, mapped: null as unknown, fresh, broken: error ?? new Error('mapParams failed') };
+    }
+  };
   sample({
     clock: start,
     source: $mapSrc,
-    fn: (src, params) => ({ params, mapped: mapOf(params, src), fresh: false }),
+    fn: (src, params) => mapOfSafe(params, src, false),
     target: requested,
   });
   sample({
     clock: refresh,
     source: $mapSrc,
-    fn: (src, params) => ({ params, mapped: mapOf(params, src), fresh: true }),
+    fn: (src, params) => mapOfSafe(params, src, true),
     target: requested,
   });
 
-  // enabled gate
+  // enabled gate (runs whose mapParams threw never reach it — they fail below)
   const allowed = sample({
     clock: requested,
     source: $enabled,
-    filter: (enabled) => enabled,
+    filter: (enabled, r) => enabled && r.broken == null,
     fn: (_e, r) => r,
   });
   // blocked by the gate: `finished.skip` keeps its farfetched-compatible `{ params }`
@@ -747,7 +774,18 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // re-evaluated across the two branches (and the error-message build).
   const checked = sample({
     clock: rawDone,
-    fn: (r) => ({ ...r, errors: validateRef ? validateRef(r.result, r.params) : null }),
+    fn: (r) => {
+      // a throwing contract/validate is a validation failure, not a dead propagation
+      let errors: string[] | null = null;
+      if (validateRef) {
+        try {
+          errors = validateRef(r.result, r.params);
+        } catch (e) {
+          errors = [e instanceof globalThis.Error ? e.message : String(e)];
+        }
+      }
+      return { ...r, errors };
+    },
   });
   sample({
     clock: checked,
@@ -782,6 +820,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     target: failed,
   });
 
+  // a run whose mapParams threw fails immediately (it never started executing)
+  sample({
+    clock: requested,
+    filter: (r) => r.broken != null,
+    fn: (r) => ({ params: r.params, error: r.broken as Error }),
+    target: finalFail,
+  });
+
   const failSource = {
     laneIds: $laneIds,
     timesSrc: $retryTimesSrc,
@@ -805,14 +851,31 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         f.params,
         f.error,
       );
-      const kind = retry
+      let kind = retry
         ? ('retry' as const)
         : currentIn(s, f)
           ? fallbackRef
             ? ('recover' as const)
             : ('final' as const)
           : ('stale' as const);
-      return { f, kind, reason: staleReason(s.laneIds, f.params) };
+      // the fallback value is computed HERE, once, under a guard: a throwing fallback
+      // demotes the verdict to a plain final failure with the ORIGINAL request error
+      let recoveredValue: Result | null = null;
+      if (kind === 'recover') {
+        try {
+          recoveredValue = fallbackRef!({ error: f.error, params: f.params });
+        } catch {
+          kind = 'final' as const;
+        }
+      }
+      return {
+        f,
+        kind,
+        reason: staleReason(s.laneIds, f.params),
+        recoveredValue,
+        // mapError applied ONCE at construction; consumers use the payload as-is
+        finalError: kind === 'final' ? mapErrorSafe(f.error, f.params) : null,
+      };
     },
   });
   sample({
@@ -831,14 +894,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   sample({
     clock: failVerdict,
     filter: ({ kind }) => kind === 'final',
-    fn: ({ f }) => ({ params: f.params, error: f.error }),
+    fn: ({ f, finalError }) => ({ params: f.params, error: finalError as Error }),
     target: finalFail,
   });
   // fallback recovers the final failure into data (aborts/skips never reach this stream)
   sample({
     clock: failVerdict,
     filter: ({ kind }) => kind === 'recover',
-    fn: ({ f }) => ({ params: f.params, result: fallbackRef!({ error: f.error, params: f.params }) }),
+    fn: ({ f, recoveredValue }) => ({ params: f.params, result: recoveredValue as Result }),
     target: recovered,
   });
   sample({
@@ -889,7 +952,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   sample({
     clock: scheduleRetry,
     filter: () => !!retryRef && retryRef.suppress === false,
-    fn: ({ params, error }) => ({ params, error }),
+    fn: ({ params, error }) => ({ params, error: mapErrorSafe(error, params) }),
     target: intermediateFail,
   });
 
@@ -900,13 +963,47 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   $retryWaits.reset(invalidate);
   sample({ clock: invalidate, fn: () => null, target: abortInFlightFx });
 
+  // ---- mapped-data stage ----
+  // mapData runs ONCE per settle, under a guard: a throwing user mapper becomes a final
+  // failure instead of a dead propagation, and $data / finished.done share the SAME
+  // mapped object (they used to call mapData independently, losing identity equality).
+  const mapDataSafe = (
+    clock: Event<{ params: Params; result: Result }>,
+  ): Event<{ params: Params; result: Mapped }> => {
+    const outcome = sample({
+      clock,
+      fn: ({ params, result }) => {
+        try {
+          return { params, ok: true as const, value: mapData({ result, params }), error: null as unknown };
+        } catch (error) {
+          return { params, ok: false as const, value: null as never, error };
+        }
+      },
+    });
+    sample({
+      clock: outcome,
+      filter: (o) => !o.ok,
+      fn: (o) => ({ params: o.params, error: o.error as Error }),
+      target: finalFail,
+    });
+    return sample({
+      clock: outcome,
+      filter: (o) => o.ok,
+      fn: (o) => ({ params: o.params, result: o.value as Mapped }),
+    });
+  };
+  const dataAccepted = mapDataSafe(acceptedDone);
+  const dataRecovered = mapDataSafe(recovered);
+  const dataCacheHit = mapDataSafe(cacheHit);
+  const dataStale = mapDataSafe(staleServe);
+
   // ---- state stores ----
   $status
-    .on(staleServe, () => 'done' as const)
+    .on(dataStale, () => 'done' as const)
     .on(tagged, () => 'pending' as const)
-    .on(acceptedDone, () => 'done' as const)
-    .on(recovered, () => 'done' as const)
-    .on(cacheHit, () => 'done' as const)
+    .on(dataAccepted, () => 'done' as const)
+    .on(dataRecovered, () => 'done' as const)
+    .on(dataCacheHit, () => 'done' as const)
     .on(finalFail, () => 'fail' as const)
     .reset(reset);
   // cancel leaves "pending" — settle the status to reflect what we have.
@@ -930,38 +1027,30 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const updateData = createEvent<(prev: Mapped | null) => Mapped | null>(evName('updateData'));
 
   $data
-    .on(acceptedDone, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
-    .on(recovered, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
-    .on(cacheHit, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
-    .on(staleServe, (prev, { params, result }) => commitData(prev, mapData({ result, params })))
+    .on([dataAccepted, dataRecovered, dataCacheHit, dataStale], (prev, { result }) =>
+      commitData(prev, result),
+    )
     .on(setData, (_prev, value) => value)
     .on(updateData, (prev, fn) => fn(prev))
     .reset(reset);
 
   $error
-    .on(finalFail, (_e, { params, error }) => mapError({ error, params }))
-    .on(intermediateFail, (_e, { params, error }) => mapError({ error, params }))
-    .reset([tagged, acceptedDone, recovered, cacheHit, reset]);
+    // finalFail / intermediateFail already carry the mapped error (mapped once, at construction)
+    .on([finalFail, intermediateFail], (_e, { error }) => error)
+    .reset([tagged, dataAccepted, dataRecovered, dataCacheHit, reset]);
 
   $stale
-    .on(staleServe, () => true)
-    .on(acceptedDone, () => false)
-    .on(recovered, () => false)
-    .on(cacheHit, () => false)
+    .on(dataStale, () => true)
+    .on([dataAccepted, dataRecovered, dataCacheHit], () => false)
     .reset(reset);
 
-  $isPlaceholderData
-    .on(acceptedDone, () => false)
-    .on(recovered, () => false)
-    .on(cacheHit, () => false)
-    .on(staleServe, () => false)
-    .reset(reset);
+  $isPlaceholderData.on([dataAccepted, dataRecovered, dataCacheHit, dataStale], () => false).reset(reset);
 
   // Track the *current* run explicitly: a cancel/reset clears it immediately,
   // even if a non-abortable effect's promise is still resolving in the background.
   const $inflight = createStore(false, nm('$inflight'))
     .on(tagged, () => true)
-    .on([acceptedDone, recovered, finalFail, cacheHit], () => false)
+    .on([dataAccepted, dataRecovered, finalFail, dataCacheHit], () => false)
     .on(invalidate, () => false);
   const $pending = combine($inflight, $retrying, (p, r) => p || r);
 
@@ -975,26 +1064,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const $isRefetching = combine($pending, $isInitialLoading, (p, initial) => p && !initial);
 
   // ---- finished / lifecycle wiring ----
-  sample({
-    clock: acceptedDone,
-    fn: ({ params, result }) => ({ params, result: mapData({ result, params }) }),
-    target: finishedDone,
-  });
-  sample({
-    clock: recovered,
-    fn: ({ params, result }) => ({ params, result: mapData({ result, params }) }),
-    target: finishedDone,
-  });
-  sample({
-    clock: cacheHit,
-    fn: ({ params, result }) => ({ params, result: mapData({ result, params }) }),
-    target: finishedDone,
-  });
-  sample({
-    clock: finalFail,
-    fn: ({ params, error }) => ({ params, error: mapError({ error, params }) }),
-    target: finishedFail,
-  });
+  // the mapped events carry the SAME object instance that landed in $data
+  sample({ clock: [dataAccepted, dataRecovered, dataCacheHit], target: finishedDone });
+  sample({ clock: finalFail, target: finishedFail });
   sample({
     clock: finishedDone,
     fn: ({ params }) => ({ params, status: 'done' as const }),
