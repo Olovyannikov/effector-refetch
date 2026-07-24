@@ -42,12 +42,15 @@ const router = createBrowserRouter([
 
 Рабочий пример: [`examples/react-router.tsx`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/react-router.tsx).
 
-## atomic-router
+## Роутеры effector: atomic-router и @effector/router
 
-Для нативного роутера effector склейка — `attachToRoute`: стартует запрос, когда маршрут
-**открывается** (с его параметрами), и сбрасывает, когда **закрывается** — без эффекта в компоненте.
+Для роутеров effector склейка — `attachToRoute`: стартует запрос, когда маршрут
+**открывается** (с его параметрами), **перезапускает** при смене параметров открытого
+маршрута (`/users/1` → `/users/2`) и сбрасывает при **закрытии** — без эффекта в компоненте.
 
-```ts
+::: code-group
+
+```ts [atomic-router]
 import { createRoute } from 'atomic-router';
 import { attachToRoute } from 'effector-refetch';
 
@@ -57,11 +60,38 @@ attachToRoute({
   route: userRoute,
   query: userQuery,
   mapParams: ({ params }) => Number(params.id), // параметры маршрута → параметры запроса
+  // restartOnUpdate: true (по умолчанию) — смена параметров перезапускает запрос
   // resetOnClose: true (по умолчанию)
 });
 ```
 
-Структурно (atomic-router не импортируется — подойдёт любой объект с `opened`/`closed`) и на
-чистом `sample`, поэтому scope-корректно для SSR. `mapParams` опционален, если параметры маршрута
-уже совпадают с параметрами запроса. Рабочий пример:
-[`examples/atomic-router.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/atomic-router.ts).
+```ts [@effector/router]
+import { createRoute } from '@effector/router';
+import { attachToRoute } from 'effector-refetch';
+
+const userRoute = createRoute({ path: '/users/:id' }); // Route<{ id: string }>
+
+attachToRoute({
+  route: userRoute,
+  query: userQuery,
+  mapParams: (opened) => Number((opened as { params: { id: string } }).params.id),
+});
+```
+
+:::
+
+Структурно (ни один роутер не импортируется — подойдёт любой объект с
+`opened`/`updated`/`closed`) и на чистом `sample`, поэтому scope-корректно для SSR.
+`mapParams` опционален, если параметры маршрута уже совпадают с параметрами запроса.
+Для @effector/router `attachToRoute` учитывает его семантику «`opened` срабатывает на
+каждый `open()`»: через `opened` запрос стартует только при переходе closed→open, смена
+параметров идёт через `updated` — без двойных запросов. Рабочие примеры:
+[`examples/atomic-router.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/atomic-router.ts),
+[`examples/effector-router.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/effector-router.ts).
+
+::: tip Родные загрузчики @effector/router
+У @effector/router есть и собственный паттерн готовности — `chainRoute` выводит маршрут
+«данные готовы» после коммита URL. `attachToRoute` — более простая склейка «запрос следует
+за маршрутом»; берите `chainRoute`, когда ЭКРАН должен ждать данные (см.
+[router.effector.dev](https://router.effector.dev/core/chain-route.html)).
+:::
