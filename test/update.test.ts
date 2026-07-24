@@ -389,3 +389,113 @@ describe('optimisticUpdate', () => {
     expect(scope.getState(todos.$data)).toEqual(['a', 'server:item']);
   });
 });
+
+const waitState = async (read: () => unknown, expected: unknown) => {
+  for (let i = 0; i < 40; i++) {
+    if (JSON.stringify(read()) === JSON.stringify(expected)) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
+
+describe('optimisticUpdate — refetch during flight (audit #47 regression)', () => {
+  it('a real fetch settling while a layer is in flight re-bases: server data survives the settle', async () => {
+    const { createWatch } = await import('effector');
+    void createWatch;
+    const queryResolvers: Array<(v: string[]) => void> = [];
+    const queryFx = createEffect((_: void) => new Promise<string[]>((res) => queryResolvers.push(res)));
+    const todos = createQuery({ effect: queryFx });
+
+    const mutResolvers: Array<(v: string) => void> = [];
+    const addFx = createEffect((_text: string) => new Promise<string>((res) => mutResolvers.push(res)));
+    const addTodo = createMutation({ effect: addFx });
+
+    optimisticUpdate({
+      query: todos,
+      on: addTodo,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+    const scope = fork();
+
+    // initial data
+    const p0 = allSettled(todos.start, { scope, params: undefined });
+    queryResolvers[0](['a']);
+    await p0;
+
+    // optimistic layer in flight
+    const pm = allSettled(addTodo.mutate, { scope, params: 'optimistic' });
+    expect(scope.getState(todos.$data)).toEqual(['a', 'optimistic']);
+
+    // the QUERY refetches and settles with fresh server data while the layer flies.
+    // NOT awaited via allSettled: the held mutation keeps the scope busy
+    const p1 = allSettled(todos.refresh, { scope, params: undefined });
+    queryResolvers[1](['a', 'b-from-server']);
+    await waitState(() => scope.getState(todos.$data), ['a', 'b-from-server', 'optimistic']);
+    // re-based: fresh data + the pending layer on top
+    expect(scope.getState(todos.$data)).toEqual(['a', 'b-from-server', 'optimistic']);
+
+    // the mutation settles: the fold must run over the FRESH base, not the stale snapshot
+    mutResolvers[0]('ok');
+    await Promise.all([pm, p1]);
+    expect(scope.getState(todos.$data)).toEqual(['a', 'b-from-server', 'optimistic']);
+  });
+
+  it('rollback after a mid-flight refetch rolls back to the FRESH data', async () => {
+    const queryResolvers: Array<(v: string[]) => void> = [];
+    const queryFx = createEffect((_: void) => new Promise<string[]>((res) => queryResolvers.push(res)));
+    const todos = createQuery({ effect: queryFx });
+
+    const addFx = createEffect(async (_text: string): Promise<string> => {
+      throw new Error('write failed');
+    });
+    const addTodo = createMutation({ effect: addFx, concurrency: 'TAKE_EVERY' });
+
+    // hold the mutation manually so the refetch can land first
+    const gate: Array<() => void> = [];
+    const heldFx = createEffect(
+      (_text: string) => new Promise<string>((_res, rej) => gate.push(() => rej(new Error('write failed')))),
+    );
+    const heldMutation = createMutation({ effect: heldFx });
+    optimisticUpdate({
+      query: todos,
+      on: heldMutation,
+      update: ({ data, params }) => [...(data ?? []), params],
+    });
+    void addTodo;
+    const scope = fork();
+
+    const p0 = allSettled(todos.start, { scope, params: undefined });
+    queryResolvers[0](['a']);
+    await p0;
+
+    const pm = allSettled(heldMutation.mutate, { scope, params: 'optimistic' });
+    const p1 = allSettled(todos.refresh, { scope, params: undefined });
+    queryResolvers[1](['fresh']);
+    await waitState(() => scope.getState(todos.$data), ['fresh', 'optimistic']);
+    expect(scope.getState(todos.$data)).toEqual(['fresh', 'optimistic']);
+
+    gate[0](); // mutation fails -> rollback
+    await Promise.all([pm, p1]);
+    expect(scope.getState(todos.$data)).toEqual(['fresh']); // not the stale ['a']
+  });
+
+  it('update(): a throwing fn skips the patch without breaking the mutation', async () => {
+    const queryFx = createEffect(async (_: void) => ['a']);
+    const todos = createQuery({ effect: queryFx });
+    const addFx = createEffect(async (text: string) => text);
+    const addTodo = createMutation({ effect: addFx });
+    update({
+      query: todos,
+      on: addTodo,
+      fn: () => {
+        throw new Error('bad patch');
+      },
+    });
+    const scope = fork();
+
+    await allSettled(todos.start, { scope, params: undefined });
+    await allSettled(addTodo.mutate, { scope, params: 'x' });
+
+    expect(scope.getState(addTodo.$status)).toBe('done');
+    expect(scope.getState(todos.$data)).toEqual(['a']); // patch skipped, data intact
+  });
+});

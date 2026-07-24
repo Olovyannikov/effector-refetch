@@ -50,24 +50,28 @@ export function update(config: any): void {
   const { query, on, fn } = config;
   const setData = query.__.setData as EventCallable<any>;
   const isOperation = on && typeof on === 'object' && 'finished' in on;
+  // a throwing user fn skips the patch instead of killing the clock's propagation
+  const SKIP = Symbol('skip');
+  const guarded = (compute: () => any): any => {
+    try {
+      return compute();
+    } catch {
+      return SKIP;
+    }
+  };
+  const wire = (clock: Event<any>, compute: (data: any, payload: any) => any) => {
+    const proposed: Event<any> = sample({ clock, source: query.$data, fn: compute });
+    sample({ clock: proposed, filter: (v: any) => v !== SKIP, target: setData });
+  };
 
   if (isOperation) {
-    sample({
-      clock: on.finished.done as Event<any>,
-      source: query.$data,
-      fn: (data: any, p: any) => fn({ data, result: p.result, params: p.params }),
-      target: setData,
-    });
+    wire(on.finished.done as Event<any>, (data: any, p: any) =>
+      guarded(() => fn({ data, result: p.result, params: p.params })),
+    );
     return;
   }
 
-  const clock: Event<any> = is.effect(on) ? on.done : on;
-  sample({
-    clock,
-    source: query.$data,
-    fn: (data: any, payload: any) => fn({ data, payload }),
-    target: setData,
-  });
+  wire(is.effect(on) ? on.done : on, (data: any, payload: any) => guarded(() => fn({ data, payload })));
 }
 
 export interface OptimisticUpdateConfig<QM, P, R> {
@@ -97,10 +101,12 @@ export interface OptimisticUpdateConfig<QM, P, R> {
  * base and adds its own layer; a settle removes ONLY its layer and the remaining
  * ones are re-applied over the base in start order. When a mutation succeeds, its
  * layer is materialized into the base (`commit` receives the base with this
- * mutation's own optimistic layer applied). Caveat: with out-of-order settles the
- * layers are re-applied in start order — non-commuting `update` functions may
- * observe a different composition than the server did; reconcile via `commit` or
- * `invalidate` when exact ordering matters.
+ * mutation's own optimistic layer applied). A real fetch settling while layers are
+ * in flight re-bases the queue onto the fresh data (pending layers re-applied on
+ * top), so refetch-during-flight never discards server data. Caveat: with
+ * out-of-order settles the layers are re-applied in start order — non-commuting
+ * `update` functions may observe a different composition than the server did;
+ * reconcile via `commit` or `invalidate` when exact ordering matters.
  */
 export function optimisticUpdate<QM, P, R>(config: OptimisticUpdateConfig<QM, P, R>): void {
   const { query, on, update: apply, commit, rollbackOnFailure = true } = config;
@@ -113,10 +119,29 @@ export function optimisticUpdate<QM, P, R>(config: OptimisticUpdateConfig<QM, P,
   interface Queue {
     base: QM | null;
     entries: Entry[];
+    /** The exact object of our last own `setData` write — distinguishes external `$data` updates. */
+    written: QM | null;
   }
   const keyOf = (params: P): string => stableStringify(params);
+  // a throwing user update()/commit() must not kill the propagation — the failing
+  // layer application is skipped (data passes through unchanged for that step)
+  const applySafe = (ctx: { data: QM | null; params: P }): QM | null => {
+    try {
+      return apply(ctx);
+    } catch {
+      return ctx.data;
+    }
+  };
+  const commitSafe = (ctx: { data: QM | null; result: R; params: P }): QM | null => {
+    if (!commit) return ctx.data;
+    try {
+      return commit(ctx);
+    } catch {
+      return ctx.data;
+    }
+  };
   const fold = (base: QM | null, entries: Entry[]): QM | null =>
-    entries.reduce<QM | null>((acc, e) => apply({ data: acc, params: e.params }), base);
+    entries.reduce<QM | null>((acc, e) => applySafe({ data: acc, params: e.params }), base);
   // remove the FIRST entry with this key (FIFO pairs identical params)
   const without = (entries: Entry[], key: string): Entry[] | null => {
     const idx = entries.findIndex((e) => e.key === key);
@@ -125,10 +150,25 @@ export function optimisticUpdate<QM, P, R>(config: OptimisticUpdateConfig<QM, P,
   };
 
   // invariant: query data === queue.entries folded (in start order) over queue.base
-  const $queue = createStore<Queue>({ base: null, entries: [] });
-  const applied = createEvent<{ queue: Queue; data: QM | null }>();
-  $queue.on(applied, (_q, { queue }) => queue);
+  const $queue = createStore<Queue>({ base: null, entries: [], written: null });
+  const applied = createEvent<{ queue: Omit<Queue, 'written'>; data: QM | null }>();
+  $queue.on(applied, (_q, { queue, data }) => ({ ...queue, written: data }));
   sample({ clock: applied, fn: ({ data }: { data: QM | null }) => data, target: setData });
+
+  // the QUERY settled a real fetch (or anything else wrote $data) while layers are in
+  // flight: re-snapshot the base to the fresh data and re-apply the pending layers —
+  // otherwise the next mutation settle folds over a stale base and DISCARDS the fresh
+  // server data. Own writes are recognized by object identity (`written`).
+  sample({
+    clock: query.$data.updates,
+    source: $queue,
+    filter: (q, data) => q.entries.length > 0 && data !== q.written,
+    fn: (q, data) => ({
+      queue: { base: data, entries: q.entries },
+      data: fold(data, q.entries),
+    }),
+    target: applied,
+  });
 
   // start: snapshot the base on the first in-flight layer, stack this one on top
   sample({
@@ -139,7 +179,7 @@ export function optimisticUpdate<QM, P, R>(config: OptimisticUpdateConfig<QM, P,
         base: q.entries.length === 0 ? data : q.base,
         entries: [...q.entries, { key: keyOf(params), params }],
       },
-      data: apply({ data, params }),
+      data: applySafe({ data, params }),
     }),
     target: applied,
   });
@@ -151,8 +191,8 @@ export function optimisticUpdate<QM, P, R>(config: OptimisticUpdateConfig<QM, P,
     filter: (q, { params }) => without(q.entries, keyOf(params)) !== null,
     fn: (q, { params, result }) => {
       const remaining = without(q.entries, keyOf(params))!;
-      const withOwn = apply({ data: q.base, params });
-      const base = commit ? commit({ data: withOwn, result, params }) : withOwn;
+      const withOwn = applySafe({ data: q.base, params });
+      const base = commitSafe({ data: withOwn, result, params });
       return {
         queue: { base: remaining.length ? base : null, entries: remaining },
         data: fold(base, remaining),
@@ -169,7 +209,7 @@ export function optimisticUpdate<QM, P, R>(config: OptimisticUpdateConfig<QM, P,
     fn: (q, { params }) => {
       const remaining = without(q.entries, keyOf(params))!;
       // rollbackOnFailure: false -> keep the optimistic value (materialize the layer)
-      const base = rollbackOnFailure ? q.base : apply({ data: q.base, params });
+      const base = rollbackOnFailure ? q.base : applySafe({ data: q.base, params });
       return {
         queue: { base: remaining.length ? base : null, entries: remaining },
         data: fold(base, remaining),
