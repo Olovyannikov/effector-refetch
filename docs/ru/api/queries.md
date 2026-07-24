@@ -109,6 +109,10 @@ query.finished.skip; //    { params } — гейт `enabled` заблокиро�
 `finished.finally` срабатывает только на `done`/`fail`, не на skip — отслеживайте skip через
 `finished.skip` / `aborted`.)
 
+Та же причина едет и на `AbortSignal` рана: хэндлеры (и ошибки, которые кидает их
+`fetch`) видят в `signal.reason` `AbortError` с причиной в сообщении — `'cancelled'`,
+`'superseded'` или `'timeout'` для дедлайна.
+
 `aborted` несёт типизированный `reason` — **почему** запуск был отброшен: `'cancelled'`
 (явный `cancel`/`reset`), `'superseded'` (его вытеснил более новый запуск той же полосы),
 `'take-first-busy'` (TAKE_FIRST отбросил при занятой полосе), `'disabled'` (гейт `enabled`
