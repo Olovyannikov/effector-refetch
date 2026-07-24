@@ -55,10 +55,12 @@ const spriteOf = (url: string) => {
         <button v-if="pages.length === 0" class="ipd__btn ipd__btn--go" @click="start()">Open pokedex</button>
         <template v-else>
           <button class="ipd__btn ipd__btn--go" :disabled="!hasNext || fetchingNext" @click="fetchNext()">
-            {{ fetchingNext ? 'Loading…' : hasNext ? 'Load more' : 'All 151 loaded' }}
+            {{ fetchingNext ? 'Loading…' : hasNext ? 'Load more' : 'All loaded' }}
           </button>
           <button class="ipd__btn" @click="reset()">Reset</button>
-          <span class="ipd__count">{{ pages.flatMap((p) => p.results).length }} / 151</span>
+          <span class="ipd__count"
+            >{{ pages.flatMap((p) => p.results).length }} / {{ pages[0]?.count ?? '?' }}</span
+          >
         </template>
       </div>
 
