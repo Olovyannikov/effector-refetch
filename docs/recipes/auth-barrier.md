@@ -36,6 +36,55 @@ What happens on a stale token:
 3. Other queries started meanwhile also queue.
 4. `refreshTokenFx` settles → the barrier **unlocks** → the retry (and the queue) run with the fresh token.
 
+## Try it live
+
+Expire the token, then press **Fetch ×3**: one `401` locks the barrier, the refresh runs
+**once**, and every retried request resumes and succeeds when it unlocks:
+
+<AuthBarrierDemo>
+<template #code>
+
+```ts
+import { createEffect, sample } from 'effector';
+import { createBarrier, createQuery, createRequestFx } from 'effector-refetch';
+
+let token = 'valid';
+
+// simulated protected API: 401 while the token is expired
+const fetchDataFx = createRequestFx(async (id: number) => {
+  await sleep(500);
+  if (token !== 'valid') throw Object.assign(new Error('Unauthorized'), { status: 401 });
+  return { id, secret: `data-${id}` };
+});
+
+// the refresh: runs ONCE per lock, the barrier re-opens when it settles
+const refreshTokenFx = createEffect(async () => {
+  await sleep(1200);
+  token = 'valid';
+});
+
+const authBarrier = createBarrier({ perform: refreshTokenFx });
+
+const dataQuery = createQuery({
+  effect: fetchDataFx,
+  barrier: authBarrier, // every run — including retries — waits while it's locked
+  retry: 1, //             the 401 attempt is replayed after the refresh
+  concurrency: 'TAKE_EVERY',
+});
+
+// a 401 locks the barrier → refreshTokenFx kicks off, retries queue up
+sample({
+  clock: fetchDataFx.failData,
+  filter: (error) => error.status === 401,
+  target: authBarrier.lock,
+});
+
+dataQuery.start(1); // with an expired token: 401 → lock → refresh → retry succeeds
+```
+
+</template>
+</AuthBarrierDemo>
+
 ## API
 
 ```ts

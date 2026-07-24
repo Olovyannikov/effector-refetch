@@ -3,6 +3,50 @@
 Показать изменение мгновенно, откатить при ошибке, сверить с сервером при успехе — и при
 желании ещё `invalidate`, чтобы подтвердить серверной правдой (паттерн в духе TanStack).
 
+## Попробуйте вживую
+
+Список дел поверх симулированного API (~600 мс задержки). Добавленный элемент появляется
+мгновенно — приглушённым, оптимистичным — и «затвердевает», когда сервер подтверждает
+запись. Включите переключатель, чтобы сервер отклонял записи, и посмотрите на откат;
+добавьте несколько дел подряд — `TAKE_EVERY` держит отдельный оптимистичный слой на
+каждую мутацию.
+
+<OptimisticTodosDemo>
+<template #code>
+
+```ts
+import { createQuery, createMutation, optimisticUpdate } from 'effector-refetch';
+
+interface Todo {
+  id: number;
+  text: string;
+  pending?: boolean; // только у оптимистичного временного элемента
+}
+
+const todosQuery = createQuery({ handler: fetchTodos }); // симулированный API, ~600мс
+const addTodo = createMutation({
+  handler: addTodoOnServer,
+  concurrency: 'TAKE_EVERY', // параллельные добавления — у каждого свой оптимистичный слой
+});
+
+optimisticUpdate({
+  query: todosQuery,
+  on: addTodo,
+  // применяется мгновенно на addTodo.mutate(text)
+  update: ({ data, params }) => [...(data ?? []), { id: 0, text: params, pending: true }],
+  // сверить временный элемент с серверным результатом при успехе
+  commit: ({ data, result }) => (data ?? []).map((t) => (t.pending && t.text === result.text ? result : t)),
+  // rollbackOnFailure: true (по умолчанию) — упавшее добавление снимает ТОЛЬКО свой слой
+});
+
+addTodo.mutate('Купить молоко'); // появляется сразу; коммит или откат через ~600мс
+```
+
+</template>
+</OptimisticTodosDemo>
+
+## Паттерн
+
 ```ts
 import { createQuery, createMutation, optimisticUpdate, invalidate } from 'effector-refetch';
 
