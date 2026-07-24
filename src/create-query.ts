@@ -1,7 +1,7 @@
 import { is } from 'effector';
 import { createBaseQuery } from './base-query';
 import { wireTagInvalidation } from './invalidate';
-import { cache, concurrency, retry } from './operators';
+import { cache, concurrency, debounce, fallback, retry } from './operators';
 import type {
   CreateQueryConfig,
   CreateQueryHandlerConfig,
@@ -52,6 +52,7 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
   const r = config.retry;
   const ca = config.cache;
   const to = config.timeout;
+  const db = config.debounce;
 
   // collect reactive (sourced) stores from inline options
   const sourced: SourcedConfig = {};
@@ -59,6 +60,7 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
   if (r != null && typeof r === 'object' && is.store(r.times)) sourced.retryTimes = r.times;
   if (ca != null && typeof ca === 'object' && is.store(ca.staleAfter)) sourced.staleAfter = ca.staleAfter;
   if (is.store(to)) sourced.timeout = to;
+  if (is.store(db)) sourced.debounce = db;
 
   // the mapped-config extras (`source` / `mapParams`) are read loosely by the engine
   const query = createBaseQuery<Params, Result, Error, Mapped>(
@@ -73,6 +75,8 @@ export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
   if (r != null) retry(query, r);
   if (ca) cache(query, ca);
   if (typeof to === 'number') query.__.setTimeout(to);
+  if (typeof db === 'number') debounce(query, db);
+  if (config.fallback !== undefined) fallback(query, config.fallback);
 
   // validation: contract + custom validate
   const { contract, validate } = config;

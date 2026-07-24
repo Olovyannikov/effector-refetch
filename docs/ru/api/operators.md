@@ -4,7 +4,16 @@
 к любому query/mutation (в т.ч. созданному в другом месте). Композируемы и tree-shakeable.
 
 ```ts
-import { concurrency, retry, cache, timeout, keepFresh, applyBarrier } from 'effector-refetch';
+import {
+  concurrency,
+  retry,
+  cache,
+  timeout,
+  debounce,
+  fallback,
+  keepFresh,
+  applyBarrier,
+} from 'effector-refetch';
 ```
 
 ## `concurrency`
@@ -95,6 +104,27 @@ cache(productsQuery, { staleAfter: 30_000, swr: true, purge: loggedOut });
 timeout(reportQuery, 5000); // сдаёмся на одной попытке через 5с
 ```
 
+## `debounce`
+
+Подождать N мс перед запуском; более новый запуск той же полосы, стартовавший во время
+ожидания, вытесняет этот **до похода в сеть** — честный debounce для поиска по мере
+ввода под `TAKE_LATEST`. `0` отключает.
+
+```ts
+debounce(searchQuery, 300); // или createQuery({ debounce: 300 })
+```
+
+## `fallback`
+
+Превратить **финальную** ошибку (после ретраев) в данные: значение попадает в `$data`,
+`$status` становится `done`, срабатывает `finished.done`. Значение **не** пишется в кэш
+(это не серверная истина), aborts/skips не затрагиваются. `null` отключает.
+
+```ts
+fallback(productsQuery, []); // пустой список вместо экрана ошибки
+fallback(profileQuery, ({ error, params }) => cachedProfileOr(params, error));
+```
+
 ## `keepFresh`
 
 Рефетчит запрос его **последними параметрами** при изменении стора-`source` **или** при срабатывании
@@ -143,7 +173,7 @@ applyBarrier(userQuery, auth);
 
 Два чётко определённых поведения, по типу оператора:
 
-- **Last-wins** — `concurrency` / `retry` / `cache` / `timeout` / `applyBarrier` это engine-_сеттеры_:
+- **Last-wins** — `concurrency` / `retry` / `cache` / `timeout` / `debounce` / `fallback` / `applyBarrier` это engine-_сеттеры_:
   второй вызов **заменяет** первый. `retry(q, 1); retry(q, 3)` ⇒ 3 ретрая; `applyBarrier(q, null)`
   отвязывает.
 - **Аддитивно** — `keepFresh` / `invalidate` / `update` _добавляют проводку_ на каждый вызов: два
