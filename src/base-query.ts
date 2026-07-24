@@ -1,4 +1,5 @@
 import {
+  attach,
   combine,
   createEffect,
   createEvent,
@@ -137,8 +138,6 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     swr: boolean;
     dedupe: boolean;
   } | null = null;
-  // keys with a request currently in flight (for dedupe coalescing); keyed by mapped params
-  const inflightKeys = new Set<string>();
   const dedupeKey = (mapped: unknown): string | null =>
     cacheRef && cacheRef.dedupe ? cacheRef.key(mapped as Params) : null;
   let validateRef: ((result: unknown, params: Params) => string[] | null) | null = null;
@@ -196,24 +195,47 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     handler: ({ ms, payload }) => new Promise((res) => setTimeout(() => res(payload), ms)),
   });
 
-  const controllers = new Set<AbortController>();
-  const abortInFlightFx = createEffect({
+  // ---- per-scope run registry (in-flight controllers + dedupe keys) ----
+  // A mutable container held in a store — NOT in the closure — so that every scope (and
+  // the scope-less world) lazily creates its OWN container via the reducer below. This is
+  // what keeps cancel / TAKE_LATEST in one fork from aborting another fork's in-flight
+  // runs, and dedupe from coalescing requests across scopes (parallel SSR requests).
+  // Container mutation (add/delete) deliberately bypasses store updates: runs only need
+  // scope-correct identity, not reactivity.
+  interface RunRegistry {
+    controllers: Set<AbortController>;
+    inflightKeys: Set<string>;
+  }
+  const $runRegistry = createStore<RunRegistry | null>(null, {
+    ...nm('$runRegistry'),
+    serialize: 'ignore',
+  });
+  const ensureRegistry = createEvent(evName('ensureRegistry'));
+  $runRegistry.on(ensureRegistry, (reg) => reg ?? { controllers: new Set(), inflightKeys: new Set() });
+
+  const abortInFlightFx = attach({
     name: evName('abortInFlightFx'),
-    handler: () => {
-      controllers.forEach((c) => c.abort());
-      controllers.clear();
+    source: $runRegistry,
+    effect(reg) {
+      if (!reg) return;
+      reg.controllers.forEach((c) => c.abort());
+      reg.controllers.clear();
     },
   });
 
-  const runFx = createEffect<Run<Params>, ExecDone<Params, Result>, Error>({
+  // `reg` is non-null on every engine path (ensureRegistry fires on `requested`, and
+  // effects read their attached source only after that pure update applies); the guards
+  // only cover direct `__.runFx` escape-hatch calls, which skip run tracking.
+  const runFx = attach({
     name: ns ? `${ns}.runFx` : undefined,
-    handler: async ({ runId, params, mapped, timeoutMs }) => {
+    source: $runRegistry,
+    effect: async (reg, { runId, params, mapped, timeoutMs }: Run<Params>) => {
       const key = dedupeKey(mapped);
-      if (key) inflightKeys.add(key);
+      if (key) reg?.inflightKeys.add(key);
       // always allocate: attach-wrapped abortable effects don't carry the __abortable
       // marker, but the signal still reaches them through the side channel
       const controller = new AbortController();
-      controllers.add(controller);
+      reg?.controllers.add(controller);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const exec = callEffect(mapped, controller.signal);
@@ -232,11 +254,11 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         return { runId, params, mapped, timeoutMs, result };
       } finally {
         if (timer) clearTimeout(timer);
-        if (key) inflightKeys.delete(key);
-        controllers.delete(controller);
+        if (key) reg?.inflightKeys.delete(key);
+        reg?.controllers.delete(controller);
       }
     },
-  });
+  }) as unknown as Effect<Run<Params>, ExecDone<Params, Result>, Error>;
 
   // ---- barrier gate ----
   // A run waits on the barrier (e.g. a token refresh) BEFORE hitting the effect. The
@@ -275,6 +297,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const $busy = combine(barrierWaitFx.pending, runFx.pending, (w, r) => w || r);
 
   const requested = createEvent<{ params: Params; mapped: unknown; fresh: boolean }>(evName('requested'));
+  // lazily create this scope's run registry before anything can need it: effects read
+  // their attached source at effect priority, after this pure update has applied
+  sample({ clock: requested, target: ensureRegistry });
   // mapParams is applied HERE, with the source store sampled fork-correctly
   sample({
     clock: start,
@@ -500,14 +525,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     target: purgeFx,
   });
 
-  // dedupe gate: drop a run whose key is already in flight (coalesce)
+  // dedupe gate: drop a run whose key is already in flight (coalesce) — per scope
   const toRun = createEvent<{ params: Params; mapped: unknown }>(evName('toRun'));
   sample({
     clock: toExec,
-    filter: (r) => {
+    source: $runRegistry,
+    filter: (reg, r) => {
       const key = dedupeKey(r.mapped);
-      return !key || !inflightKeys.has(key);
+      return !key || !reg || !reg.inflightKeys.has(key);
     },
+    fn: (_reg, r) => r,
     target: toRun,
   });
 
