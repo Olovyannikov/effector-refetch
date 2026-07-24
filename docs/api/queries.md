@@ -59,6 +59,23 @@ arrives. So when params change, the old data stays visible while the new fetch r
 
 Share these across many queries with a [factory](/recipes/defaults).
 
+## Imperative start: `startAsync`
+
+`query.startAsync` is a real `Effect<Params, Data>` — start a run and `await` its outcome:
+
+```ts
+const user = await userQuery.startAsync(1); // resolves with mapped data
+// rejects with the run error, or an Error mentioning the AbortReason on discard
+```
+
+- **React/Vue/Solid**: `useUnit(query.startAsync)` returns a scope-bound promise-returning
+  function — perfect for submit handlers.
+- **Tests/SSR**: `(await allSettled(query.startAsync, { scope, params })).value` is the data.
+- Mutations expose `mutateAsync` as the alias: `await createTodo.mutateAsync(text)`.
+- Calls are matched to settles by params (deep equality, oldest first): two scopes running
+  IDENTICAL params at the same instant may swap results — prefer `allSettled` +
+  `scope.getState` where that matters.
+
 ## Lifecycle events
 
 ```ts

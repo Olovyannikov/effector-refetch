@@ -8,6 +8,7 @@ import {
   merge,
   sample,
   type Effect,
+  type Event,
   type EventCallable,
   type Store,
 } from 'effector';
@@ -28,7 +29,7 @@ import { ValidationError } from './validation';
 import { provideAbortSignal, RequestError, takeAbortSignal } from './request';
 import { $queryCache } from './cache';
 import { $queryDefaults, type QueryDefaults } from './defaults';
-import { replaceEqualDeep } from './utils';
+import { replaceEqualDeep, stableStringify } from './utils';
 import { makeTrigger } from './trigger';
 import { setupPolling } from './engine/polling';
 import { setupIntrospection } from './engine/introspection';
@@ -773,53 +774,64 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     strat: $strategySrc,
     defs: $queryDefaults,
   };
-  sample({
+  // ONE atomic verdict per failure, split by filters below. Deciding retry/final/stale
+  // in a single fn against a single source snapshot is load-bearing: separate samples
+  // would race — the retry branch bumps $attempts within the same propagation, and a
+  // later filter reading the bumped value spuriously double-fires finished.fail on the
+  // second-to-last attempt.
+  const failVerdict = sample({
     clock: failed,
     source: failSource,
-    filter: ({ laneIds, attempts, timesSrc, strat, defs }, { runId, params, error }) =>
-      willRetry(defs, stratOf(strat, defs), laneIds, attempts, timesOf(timesSrc, defs), runId, params, error),
-    fn: (_s, { runId, params, mapped, error, timeoutMs }) => ({ runId, params, mapped, error, timeoutMs }),
+    fn: (s, f) => {
+      const retry = willRetry(
+        s.defs,
+        stratOf(s.strat, s.defs),
+        s.laneIds,
+        s.attempts,
+        timesOf(s.timesSrc, s.defs),
+        f.runId,
+        f.params,
+        f.error,
+      );
+      const kind = retry
+        ? ('retry' as const)
+        : currentIn(s, f)
+          ? fallbackRef
+            ? ('recover' as const)
+            : ('final' as const)
+          : ('stale' as const);
+      return { f, kind, reason: staleReason(s.laneIds, f.params) };
+    },
+  });
+  sample({
+    clock: failVerdict,
+    filter: ({ kind }) => kind === 'retry',
+    fn: ({ f }) => ({
+      runId: f.runId,
+      params: f.params,
+      mapped: f.mapped,
+      error: f.error,
+      timeoutMs: f.timeoutMs,
+    }),
     target: scheduleRetry,
   });
-  type FailSourceState = {
-    laneIds: ReadonlyMap<string, number>;
-    attempts: number;
-    timesSrc: number | null;
-    strat: ConcurrencyStrategy | null;
-    defs: QueryDefaults;
-  };
-  const isFinalFailure = (s: FailSourceState, f: { runId: number; params: Params; error: Error }): boolean =>
-    currentIn(s, f) &&
-    !willRetry(
-      s.defs,
-      stratOf(s.strat, s.defs),
-      s.laneIds,
-      s.attempts,
-      timesOf(s.timesSrc, s.defs),
-      f.runId,
-      f.params,
-      f.error,
-    );
   sample({
-    clock: failed,
-    source: failSource,
-    filter: (s, f) => isFinalFailure(s, f) && !fallbackRef,
-    fn: (_s, { params, error }) => ({ params, error }),
+    clock: failVerdict,
+    filter: ({ kind }) => kind === 'final',
+    fn: ({ f }) => ({ params: f.params, error: f.error }),
     target: finalFail,
   });
   // fallback recovers the final failure into data (aborts/skips never reach this stream)
   sample({
-    clock: failed,
-    source: failSource,
-    filter: (s, f) => isFinalFailure(s, f) && !!fallbackRef,
-    fn: (_s, { params, error }) => ({ params, result: fallbackRef!({ error, params }) }),
+    clock: failVerdict,
+    filter: ({ kind }) => kind === 'recover',
+    fn: ({ f }) => ({ params: f.params, result: fallbackRef!({ error: f.error, params: f.params }) }),
     target: recovered,
   });
   sample({
-    clock: failed,
-    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
-    filter: (s, f) => !currentIn(s, f),
-    fn: staleAbort,
+    clock: failVerdict,
+    filter: ({ kind }) => kind === 'stale',
+    fn: ({ f, reason }) => ({ params: f.params, reason }),
     target: aborted,
   });
 
@@ -841,6 +853,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     filter: (s, payload) => currentIn(s, payload as Run<Params>),
     fn: (_s, payload) => payload as Run<Params>,
     target: toRunFx,
+  });
+  // a sleeping run (debounce wait / retry pause) that lost currency is DROPPED here —
+  // emit aborted so observers (and startAsync deferreds) learn about it instead of
+  // waiting forever
+  sample({
+    clock: sleepFx.doneData,
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults },
+    filter: (s, payload) => !currentIn(s, payload as Run<Params>),
+    fn: (s, payload) => staleAbort(s, payload as Run<Params>),
+    target: aborted,
   });
   $retrying.reset(sleepFx.done);
 
@@ -993,10 +1015,92 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     evName,
   });
 
+  // ---- imperative start (startAsync) ----
+  // A real Effect that resolves with THIS run's mapped data. Scope-correct by
+  // construction: the handler synchronously fires scope-bound unit calls (imperative
+  // calls inside handlers are supported by effector 23), registering a globally unique
+  // token in a PER-SCOPE store; settles are then matched to tokens in the graph via
+  // `sample`, and only the infrastructure `settleAsyncFx` touches the promise world.
+  // The deferred map is keyed by the unique token, so scopes can never swap results.
+  const asyncDeferreds = new Map<number, { resolve: (v: Mapped) => void; reject: (e: unknown) => void }>();
+  let asyncTokenSeq = 0;
+
+  const asyncCallRegistered = createEvent<{ token: number; key: string }>(evName('asyncCallRegistered'));
+  const asyncTokensTaken = createEvent<number[]>(evName('asyncTokensTaken'));
+  const $asyncTokens = createStore<Array<{ token: number; key: string }>>([], {
+    ...nm('$asyncTokens'),
+    serialize: 'ignore',
+  })
+    .on(asyncCallRegistered, (list, call) => [...list, call])
+    .on(asyncTokensTaken, (list, tokens) => list.filter((t) => !tokens.includes(t.token)));
+
+  // eslint-disable-next-line effector/enforce-effect-naming-convention -- public API name: `query.startAsync(params)` reads as a verb, the Fx suffix is an internal convention
+  const startAsync = createEffect<Params, Mapped>({
+    name: evName('startAsync'),
+    handler: (params) =>
+      new Promise<Mapped>((resolve, reject) => {
+        const token = ++asyncTokenSeq;
+        asyncDeferreds.set(token, { resolve, reject });
+        // both calls are synchronous, BEFORE any await — that's what keeps them scope-bound
+        asyncCallRegistered({ token, key: stableStringify(params) });
+        start(params);
+      }),
+  });
+
+  const settleAsyncFx = createEffect({
+    name: evName('settleAsyncFx'),
+    handler: ({ tokens, ok, value }: { tokens: number[]; ok: boolean; value: unknown }) => {
+      for (const token of tokens) {
+        const deferred = asyncDeferreds.get(token);
+        asyncDeferreds.delete(token);
+        if (!deferred) continue;
+        if (ok) deferred.resolve(value as Mapped);
+        else deferred.reject(value);
+      }
+    },
+  });
+
+  // oldest pending call with these params settles first (FIFO within a scope)
+  const matchToken = (list: Array<{ token: number; key: string }>, params: Params) => {
+    const key = stableStringify(params);
+    return list.find((t) => t.key === key);
+  };
+  const matchTokens = (list: Array<{ token: number; key: string }>, params: Params) => {
+    const key = stableStringify(params);
+    return list.filter((t) => t.key === key).map((t) => t.token);
+  };
+  // Real settles resolve EVERY pending call with these params — dedupe coalesces several
+  // startAsync calls into one run, and all of them deserve the winner's outcome. Aborts
+  // take only the OLDEST matching call: a superseded duplicate must not reject the newer
+  // caller whose replacement run is still flying.
+  const wireSettle = <P extends { params: Params }>(
+    clock: Event<P>,
+    ok: boolean,
+    all: boolean,
+    toValue: (payload: P) => unknown,
+  ): void => {
+    const matched = sample({
+      clock,
+      source: $asyncTokens,
+      filter: (list, { params }) => !!matchToken(list, params),
+      fn: (list, payload) => ({
+        tokens: all ? matchTokens(list, payload.params) : [matchToken(list, payload.params)!.token],
+        ok,
+        value: toValue(payload),
+      }),
+    });
+    sample({ clock: matched, target: settleAsyncFx });
+    sample({ clock: matched, fn: ({ tokens }) => tokens, target: asyncTokensTaken });
+  };
+  wireSettle(finishedDone, true, true, (p) => p.result);
+  wireSettle(finishedFail, false, true, (p) => p.error);
+  wireSettle(aborted, false, false, (p) => new Error(`startAsync: run discarded (${p.reason})`));
+
   const refetch = refresh;
 
   return {
     start: start as EventCallable<Params>,
+    startAsync,
     refresh: refresh as EventCallable<Params>,
     refetch: refetch as EventCallable<Params>,
     prefetch: prefetch as EventCallable<Params>,
@@ -1098,6 +1202,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       params: $params,
       isPlaceholderData: $isPlaceholderData,
       start: start as EventCallable<Params>,
+      startAsync,
       refetch: refetch as EventCallable<Params>,
       refresh: refresh as EventCallable<Params>,
       reset,

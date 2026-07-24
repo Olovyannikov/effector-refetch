@@ -38,10 +38,14 @@ export function createMutation<Params, Result, Error = unknown, Mapped = Result>
       : createQuery<Params, Result, Error, Mapped>({ ...config, concurrency: concurrencyOpt });
 
   const mutate = query.start;
+  // eslint-disable-next-line effector/enforce-effect-naming-convention -- public API alias: `mutation.mutateAsync(params)`
+  const mutateAsync = query.startAsync;
 
   return {
     start: query.start,
+    startAsync: query.startAsync,
     mutate,
+    mutateAsync,
     reset: query.reset,
     cancel: query.cancel,
 
@@ -63,7 +67,9 @@ export function createMutation<Params, Result, Error = unknown, Mapped = Result>
       pending: query.$pending,
       params: query.$params,
       start: query.start as EventCallable<Params>,
+      startAsync: query.startAsync,
       mutate: mutate as EventCallable<Params>,
+      mutateAsync,
       reset: query.reset,
       cancel: query.cancel,
     }),

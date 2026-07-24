@@ -104,6 +104,7 @@ describe('public API surface', () => {
     for (const key of ['start', 'refresh', 'refetch', 'prefetch', 'reset', 'cancel'] as const) {
       expect(is.event(query[key]), key).toBe(true);
     }
+    expect(is.effect(query.startAsync), 'startAsync').toBe(true);
     for (const key of [
       '$data',
       '$error',
@@ -135,6 +136,8 @@ describe('public API surface', () => {
     for (const key of ['start', 'mutate', 'reset', 'cancel'] as const) {
       expect(is.event(mutation[key]), key).toBe(true);
     }
+    expect(is.effect(mutation.startAsync), 'startAsync').toBe(true);
+    expect(is.effect(mutation.mutateAsync), 'mutateAsync').toBe(true);
     for (const key of ['$data', '$error', '$status', '$pending', '$params'] as const) {
       expect(is.store(mutation[key]), key).toBe(true);
     }
