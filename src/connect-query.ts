@@ -41,19 +41,30 @@ export function connectQuery(config: any): void {
   // single source: Query has a `.start` trigger, so it's not a plain Sources record
   const isSingle = source && typeof source === 'object' && 'finished' in source;
 
+  // user callbacks run in pure positions — a throw must not kill the source query's
+  // propagation (other subscribers of finished.done ride the same tick)
+  const guardFilter = (check: () => boolean): boolean => {
+    try {
+      return check();
+    } catch {
+      return false;
+    }
+  };
+
   if (isSingle) {
     const q = source as Query<any, any, any, any>;
     const compute = (clk: any) => (fn ? fn({ result: clk.result, params: clk.params }).params : undefined);
-    if (filter) {
-      sample({
-        clock: q.finished.done,
-        filter: (clk: any) => filter({ result: clk.result, params: clk.params }),
-        fn: compute,
-        target: target.start as any,
-      });
-    } else {
-      sample({ clock: q.finished.done, fn: compute, target: target.start as any });
-    }
+    sample({
+      clock: q.finished.done,
+      filter: (clk: any) =>
+        guardFilter(() => {
+          if (filter && !filter({ result: clk.result, params: clk.params })) return false;
+          compute(clk); // probe: a throwing fn drops the connection instead of the tick
+          return true;
+        }),
+      fn: compute,
+      target: target.start as any,
+    });
     return;
   }
 
@@ -75,7 +86,12 @@ export function connectQuery(config: any): void {
   sample({
     clock: keys.map((k) => queries[k].finished.done),
     source: { ctx: $ctx, allDone: $allDone },
-    filter: ({ ctx, allDone }) => allDone && (filter ? filter(ctx) : true),
+    filter: ({ ctx, allDone }) =>
+      guardFilter(() => {
+        if (!allDone || (filter && !filter(ctx))) return false;
+        if (fn) fn(ctx); // probe
+        return true;
+      }),
     fn: ({ ctx }) => (fn ? fn(ctx).params : undefined),
     target: target.start as any,
   });

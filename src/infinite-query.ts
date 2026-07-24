@@ -179,20 +179,33 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
 
   // rederive the window cursors from a pages/pageParams pair (shared by the
   // page-settle reducer and refetchAll)
+  // user cursor fns run inside reducers — a throw must not kill the settle; it
+  // degrades to "no page in that direction"
+  const guardCursor = <T>(compute: () => T): T | undefined => {
+    try {
+      return compute();
+    } catch {
+      return undefined;
+    }
+  };
   const deriveState = (pages: Page[], pageParams: PageParam[]): InfiniteState<PageParam, Page> => {
-    const next = getNextPageParam({
-      lastPage: pages[pages.length - 1],
-      allPages: pages,
-      lastPageParam: pageParams[pageParams.length - 1],
-      allPageParams: pageParams,
-    });
+    const next = guardCursor(() =>
+      getNextPageParam({
+        lastPage: pages[pages.length - 1],
+        allPages: pages,
+        lastPageParam: pageParams[pageParams.length - 1],
+        allPageParams: pageParams,
+      }),
+    );
     const prev = getPreviousPageParam
-      ? getPreviousPageParam({
-          firstPage: pages[0],
-          allPages: pages,
-          firstPageParam: pageParams[0],
-          allPageParams: pageParams,
-        })
+      ? guardCursor(() =>
+          getPreviousPageParam!({
+            firstPage: pages[0],
+            allPages: pages,
+            firstPageParam: pageParams[0],
+            allPageParams: pageParams,
+          }),
+        )
       : undefined;
     return {
       pages,
