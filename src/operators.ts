@@ -8,14 +8,23 @@ import type { CacheConfig, ConcurrencyStrategy, DelayFn, Query, RetryConfig } fr
 type AnyQuery = Query<any, any, any, any>;
 
 /**
- * Set the concurrency strategy. Standalone & composable:
+ * Set the concurrency strategy and/or lane key. Standalone & composable:
  *
  *   concurrency(searchQuery, { strategy: 'TAKE_LATEST' });
+ *   concurrency(rowQuery, { strategy: 'TAKE_LATEST', key: ({ rowId }) => String(rowId) });
+ *
+ * With a `key`, runs whose params map to the same key compete with each other
+ * (supersede / TAKE_FIRST drop apply within a lane); different lanes are independent.
+ * `$data` stays single per query — lanes partition cancellation, not data.
  *
  * `createQuery({ concurrency })` is sugar over this.
  */
-export function concurrency<Q extends AnyQuery>(query: Q, opts: { strategy: ConcurrencyStrategy }): Q {
-  query.__.setStrategy(opts.strategy);
+export function concurrency<Q extends AnyQuery>(
+  query: Q,
+  opts: { strategy?: ConcurrencyStrategy; key?: ((params: any) => string) | null },
+): Q {
+  if (opts.strategy != null) query.__.setStrategy(opts.strategy);
+  if (opts.key !== undefined) query.__.setLaneKey(opts.key);
   return query;
 }
 

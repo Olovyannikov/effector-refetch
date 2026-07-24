@@ -25,6 +25,10 @@ const query = createQuery({
   - `TAKE_LATEST` (по умолчанию) — новый запуск вытесняет и прерывает предыдущий.
   - `TAKE_FIRST` — игнорировать новые запуски, пока один в полёте.
   - `TAKE_EVERY` — применяются все (в `$data` побеждает последний результат).
+  - Объектная форма `{ strategy?, key?: (params) => string }` добавляет **полосы (lanes)**:
+    запуски с одинаковым ключом конкурируют между собой, разные полосы независимы
+    (обновление одной строки не отменяет соседние). `cancel`/`reset` затрагивают все полосы;
+    `$data` остаётся один — полосы разделяют отмену, а не данные.
 - **`retry`** — `number` или `{ times, delay?, filter?, suppressIntermediateErrors? }`. Каждый ретрай — реальный вызов эффекта. Хелперы: `linearDelay`, `exponentialDelay`.
 - **`cache`** — `true` или конфиг (см. [кэширование](#кэширование)).
 - **`enabled`** — гейт `Store<boolean>`; пока `false`, `start`/`refresh` пропускаются.
@@ -59,7 +63,7 @@ const query = createQuery({
 query.finished.done; //    { params, result } — запуск успешен
 query.finished.fail; //    { params, error }  — запуск упал
 query.finished.finally; // { params, status: 'done' | 'fail' }
-query.aborted; //          { params } — cancel / reset / вытеснение TAKE_LATEST / skip
+query.aborted; //          { params, reason } — cancel / reset / вытеснение TAKE_LATEST / skip
 ```
 
 Для **совместимости с farfetched** `finished` также отдаёт:
@@ -75,6 +79,11 @@ query.finished.skip; //    { params } — гейт `enabled` заблокиро�
 и вытеснение `TAKE_LATEST`, — оставаясь надмножеством `skip`. (В отличие от farfetched,
 `finished.finally` срабатывает только на `done`/`fail`, не на skip — отслеживайте skip через
 `finished.skip` / `aborted`.)
+
+`aborted` несёт типизированный `reason` — **почему** запуск был отброшен: `'cancelled'`
+(явный `cancel`/`reset`), `'superseded'` (его вытеснил более новый запуск той же полосы),
+`'take-first-busy'` (TAKE_FIRST отбросил при занятой полосе), `'disabled'` (гейт `enabled`
+был выключен).
 
 ## Операторы
 

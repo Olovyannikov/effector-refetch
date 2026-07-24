@@ -91,6 +91,8 @@ export type {
   AbortableEffect,
   QueryEffect,
   ConcurrencyStrategy,
+  ConcurrencyConfig,
+  AbortReason,
   RetryConfig,
   CacheAdapter,
   CacheConfig,

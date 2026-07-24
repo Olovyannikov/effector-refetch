@@ -13,6 +13,7 @@ import {
 } from 'effector';
 
 import type {
+  AbortReason,
   CacheAdapter,
   ConcurrencyStrategy,
   CreateQueryConfig,
@@ -124,6 +125,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     : createStore(typeof config.refetchInterval === 'number' ? config.refetchInterval : 0);
 
   let strategyConst: ConcurrencyStrategy = 'TAKE_LATEST';
+  let laneKeyConst: ((params: Params) => string) | null = null;
   let retryTimesConst = 0;
   let staleAfterConst = Infinity;
   let timeoutConst = 0;
@@ -148,8 +150,27 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const timesOf = (v: number | null): number => v ?? retryTimesConst;
   const staleOf = (v: number | null): number => v ?? staleAfterConst;
   const timeoutOf = (v: number | null): number => v ?? timeoutConst;
-  const isCurrent = (strategy: ConcurrencyStrategy, lastId: number, runId: number) =>
-    strategy === 'TAKE_EVERY' ? true : runId === lastId;
+  // concurrency lanes: runs whose (public) params map to the same key compete with each
+  // other; runs in different lanes are independent. No key -> one lane ('') = old behavior.
+  const laneOf = (params: Params): string => (laneKeyConst ? laneKeyConst(params) : '');
+  const isCurrent = (
+    strategy: ConcurrencyStrategy,
+    laneIds: ReadonlyMap<string, number>,
+    runId: number,
+    params: Params,
+  ) => (strategy === 'TAKE_EVERY' ? true : laneIds.get(laneOf(params)) === runId);
+  // why a settle lost currency: its lane was re-tagged (superseded) or wiped (cancel/reset)
+  const staleReason = (laneIds: ReadonlyMap<string, number>, params: Params): AbortReason =>
+    laneIds.has(laneOf(params)) ? 'superseded' : 'cancelled';
+  // shared sample predicates/payloads (also keeps the bundle small)
+  const currentIn = (
+    s: { laneIds: ReadonlyMap<string, number>; strat: ConcurrencyStrategy | null },
+    run: { runId: number; params: Params },
+  ) => isCurrent(stratOf(s.strat), s.laneIds, run.runId, run.params);
+  const staleAbort = (s: { laneIds: ReadonlyMap<string, number> }, run: { params: Params }) => ({
+    params: run.params,
+    reason: staleReason(s.laneIds, run.params),
+  });
 
   // ---- public units ----
   const start = createEvent<Params>(evName('start'));
@@ -176,7 +197,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const $stale = createStore(false, nm('$stale'));
   const $params = createStore<Params | null>(null, nm('$params'));
 
-  const aborted = createEvent<{ params: Params }>(evName('aborted'));
+  const aborted = createEvent<{ params: Params; reason: AbortReason }>(evName('aborted'));
   // farfetched-compatible `finished.skip`: the `enabled` gate prevented execution.
   const skipped = createEvent<{ params: Params }>(evName('finished.skip'));
   const finishedDone = createEvent<{ params: Params; result: Mapped }>(evName('finished.done'));
@@ -187,6 +208,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   // ---- internal units ----
   const $runId = createStore(0, nm('$runId'));
+  // lane -> last tagged runId; currency checks compare against their own lane only.
+  // Always replaced immutably, so the shared initial Map is never written to.
+  const $laneIds = createStore<ReadonlyMap<string, number>>(new Map(), {
+    ...nm('$laneIds'),
+    serialize: 'ignore',
+  });
   const $attempts = createStore(0, nm('$attempts'));
   const $retrying = createStore(false, nm('$retrying'));
 
@@ -203,23 +230,44 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // Container mutation (add/delete) deliberately bypasses store updates: runs only need
   // scope-correct identity, not reactivity.
   interface RunRegistry {
-    controllers: Set<AbortController>;
+    /** lane -> in-flight AbortControllers of that lane */
+    controllers: Map<string, Set<AbortController>>;
     inflightKeys: Set<string>;
+    /** lane -> number of runs occupying it (barrier wait + effect execution) */
+    laneBusy: Map<string, number>;
   }
   const $runRegistry = createStore<RunRegistry | null>(null, {
     ...nm('$runRegistry'),
     serialize: 'ignore',
   });
   const ensureRegistry = createEvent(evName('ensureRegistry'));
-  $runRegistry.on(ensureRegistry, (reg) => reg ?? { controllers: new Set(), inflightKeys: new Set() });
+  $runRegistry.on(
+    ensureRegistry,
+    (reg) => reg ?? { controllers: new Map(), inflightKeys: new Set(), laneBusy: new Map() },
+  );
 
+  const laneDelta = (reg: RunRegistry | null, lane: string, d: number): void => {
+    if (!reg) return;
+    const next = (reg.laneBusy.get(lane) ?? 0) + d;
+    if (next > 0) reg.laneBusy.set(lane, next);
+    else reg.laneBusy.delete(lane);
+  };
+  const laneIsBusy = (reg: RunRegistry | null, params: Params): boolean =>
+    !!reg && (reg.laneBusy.get(laneOf(params)) ?? 0) > 0;
+
+  // abort in-flight runs of one lane (TAKE_LATEST supersede) or of all lanes (null:
+  // cancel / reset) — always only within the acting scope's registry
+  const abortSet = (set?: Set<AbortController>) => {
+    set?.forEach((c) => c.abort());
+    set?.clear();
+  };
   const abortInFlightFx = attach({
     name: evName('abortInFlightFx'),
     source: $runRegistry,
-    effect(reg) {
+    effect(reg: RunRegistry | null, lane: string | null) {
       if (!reg) return;
-      reg.controllers.forEach((c) => c.abort());
-      reg.controllers.clear();
+      if (lane == null) reg.controllers.forEach(abortSet);
+      else abortSet(reg.controllers.get(lane));
     },
   });
 
@@ -232,10 +280,17 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     effect: async (reg, { runId, params, mapped, timeoutMs }: Run<Params>) => {
       const key = dedupeKey(mapped);
       if (key) reg?.inflightKeys.add(key);
+      const lane = laneOf(params);
+      laneDelta(reg, lane, 1);
       // always allocate: attach-wrapped abortable effects don't carry the __abortable
       // marker, but the signal still reaches them through the side channel
       const controller = new AbortController();
-      reg?.controllers.add(controller);
+      let laneSet: Set<AbortController> | undefined;
+      if (reg) {
+        laneSet = reg.controllers.get(lane);
+        if (!laneSet) reg.controllers.set(lane, (laneSet = new Set()));
+        laneSet.add(controller);
+      }
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const exec = callEffect(mapped, controller.signal);
@@ -255,7 +310,11 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       } finally {
         if (timer) clearTimeout(timer);
         if (key) reg?.inflightKeys.delete(key);
-        reg?.controllers.delete(controller);
+        laneDelta(reg, lane, -1);
+        if (laneSet) {
+          laneSet.delete(controller);
+          if (laneSet.size === 0) reg?.controllers.delete(lane);
+        }
       }
     },
   }) as unknown as Effect<Run<Params>, ExecDone<Params, Result>, Error>;
@@ -266,10 +325,18 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // re-check currency in the graph (fork-correct $runId) and drop a superseded/cancelled
   // run WITHOUT performing its request. Runs with no barrier attached skip this hop.
   const toRunFx = createEvent<Run<Params>>(evName('toRunFx'));
-  const barrierWaitFx = createEffect<Run<Params>, Run<Params>>({
+  // occupies the run's lane while waiting, so TAKE_FIRST sees barrier-gated runs as busy
+  const barrierWaitFx = attach({
     name: evName('barrierWaitFx'),
-    handler: async (run) => {
-      if (barrierRef) await barrierRef.__.wait();
+    source: $runRegistry,
+    effect: async (reg, run: Run<Params>) => {
+      const lane = laneOf(run.params);
+      laneDelta(reg, lane, 1);
+      try {
+        if (barrierRef) await barrierRef.__.wait();
+      } finally {
+        laneDelta(reg, lane, -1);
+      }
       return run;
     },
   });
@@ -281,20 +348,18 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // dropped here, so it never reaches the network
   sample({
     clock: barrierWaitFx.doneData,
-    source: { lastId: $runId, strat: $strategySrc },
-    filter: ({ lastId, strat }, run) => isCurrent(stratOf(strat), lastId, run.runId),
+    source: { laneIds: $laneIds, strat: $strategySrc },
+    filter: currentIn,
     fn: (_s, run) => run,
     target: runFx,
   });
   sample({
     clock: barrierWaitFx.doneData,
-    source: { lastId: $runId, strat: $strategySrc },
-    filter: ({ lastId, strat }, run) => !isCurrent(stratOf(strat), lastId, run.runId),
-    fn: (_s, run) => ({ params: run.params }),
+    source: { laneIds: $laneIds, strat: $strategySrc },
+    filter: (s, run) => !currentIn(s, run),
+    fn: staleAbort,
     target: aborted,
   });
-  // "in progress" for TAKE_FIRST means waiting on the barrier OR executing the effect
-  const $busy = combine(barrierWaitFx.pending, runFx.pending, (w, r) => w || r);
 
   const requested = createEvent<{ params: Params; mapped: unknown; fresh: boolean }>(evName('requested'));
   // lazily create this scope's run registry before anything can need it: effects read
@@ -321,28 +386,36 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     filter: (enabled) => enabled,
     fn: (_e, r) => r,
   });
-  sample({
+  // blocked by the gate: `finished.skip` keeps its farfetched-compatible `{ params }`
+  // payload; only `aborted` carries the reason
+  const disabledBlock = sample({
     clock: requested,
     source: $enabled,
     filter: (enabled) => !enabled,
     fn: (_e, r) => ({ params: r.params }),
-    target: [aborted, skipped],
+  });
+  sample({ clock: disabledBlock, target: skipped });
+  sample({
+    clock: disabledBlock,
+    fn: ({ params }) => ({ params, reason: 'disabled' as const }),
+    target: aborted,
   });
 
-  // concurrency gate (TAKE_FIRST drops while busy) — strategy sourced
+  // concurrency gate (TAKE_FIRST drops while its lane is busy) — strategy sourced;
+  // "busy" covers waiting on the barrier and executing the effect (registry laneBusy)
   const proceed = createEvent<{ params: Params; mapped: unknown; fresh: boolean }>(evName('proceed'));
   sample({
     clock: allowed,
-    source: { busy: $busy, strat: $strategySrc },
-    filter: ({ busy, strat }) => !(stratOf(strat) === 'TAKE_FIRST' && busy),
+    source: { reg: $runRegistry, strat: $strategySrc },
+    filter: ({ reg, strat }, r) => !(stratOf(strat) === 'TAKE_FIRST' && laneIsBusy(reg, r.params)),
     fn: (_s, r) => r,
     target: proceed,
   });
   sample({
     clock: allowed,
-    source: { busy: $busy, strat: $strategySrc },
-    filter: ({ busy, strat }) => stratOf(strat) === 'TAKE_FIRST' && busy,
-    fn: (_s, r) => ({ params: r.params }),
+    source: { reg: $runRegistry, strat: $strategySrc },
+    filter: ({ reg, strat }, r) => stratOf(strat) === 'TAKE_FIRST' && laneIsBusy(reg, r.params),
+    fn: (_s, r) => ({ params: r.params, reason: 'take-first-busy' as const }),
     target: aborted,
   });
 
@@ -550,12 +623,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     }),
   });
   $runId.on(tagged, (_id, t) => t.runId);
+  $laneIds.on(tagged, (map, t) => new Map(map).set(laneOf(t.params), t.runId));
   $attempts.on(tagged, () => 0);
-  // TAKE_LATEST: abort the superseded in-flight request before the new one starts
+  // TAKE_LATEST: abort the superseded in-flight request OF THIS LANE before the new one starts
   sample({
     clock: tagged,
     source: $strategySrc,
     filter: (s) => stratOf(s) === 'TAKE_LATEST',
+    fn: (_s, t) => laneOf(t.params),
     target: abortInFlightFx,
   });
   sample({ clock: tagged, target: toRunFx });
@@ -568,8 +643,8 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // ---- result acceptance (concurrency) ----
   sample({
     clock: runFx.done,
-    source: { lastId: $runId, strat: $strategySrc },
-    filter: ({ lastId, strat }, { result }) => isCurrent(stratOf(strat), lastId, result.runId),
+    source: { laneIds: $laneIds, strat: $strategySrc },
+    filter: (s, { result }) => currentIn(s, result),
     fn: (_s, { result }) => ({
       runId: result.runId,
       params: result.params,
@@ -581,23 +656,24 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
   sample({
     clock: runFx.done,
-    source: { lastId: $runId, strat: $strategySrc },
-    filter: ({ lastId, strat }, { result }) => !isCurrent(stratOf(strat), lastId, result.runId),
-    fn: (_s, { result }) => ({ params: result.params }),
+    source: { laneIds: $laneIds, strat: $strategySrc },
+    filter: (s, { result }) => !currentIn(s, result),
+    fn: (s, { result }) => staleAbort(s, result),
     target: aborted,
   });
 
   // ---- failure / retry ----
   const willRetry = (
     strategy: ConcurrencyStrategy,
-    lastId: number,
+    laneIds: ReadonlyMap<string, number>,
     attempts: number,
     times: number,
     runId: number,
+    params: Params,
     error: Error,
   ) =>
     !!retryRef &&
-    isCurrent(strategy, lastId, runId) &&
+    isCurrent(strategy, laneIds, runId, params) &&
     attempts < times &&
     retryRef.filter({ error, attempt: attempts + 1 });
 
@@ -652,29 +728,34 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     target: failed,
   });
 
-  const failSource = { lastId: $runId, attempts: $attempts, timesSrc: $retryTimesSrc, strat: $strategySrc };
+  const failSource = {
+    laneIds: $laneIds,
+    attempts: $attempts,
+    timesSrc: $retryTimesSrc,
+    strat: $strategySrc,
+  };
   sample({
     clock: failed,
     source: failSource,
-    filter: ({ lastId, attempts, timesSrc, strat }, { runId, error }) =>
-      willRetry(stratOf(strat), lastId, attempts, timesOf(timesSrc), runId, error),
+    filter: ({ laneIds, attempts, timesSrc, strat }, { runId, params, error }) =>
+      willRetry(stratOf(strat), laneIds, attempts, timesOf(timesSrc), runId, params, error),
     fn: (_s, { runId, params, mapped, error, timeoutMs }) => ({ runId, params, mapped, error, timeoutMs }),
     target: scheduleRetry,
   });
   sample({
     clock: failed,
     source: failSource,
-    filter: ({ lastId, attempts, timesSrc, strat }, { runId, error }) =>
-      isCurrent(stratOf(strat), lastId, runId) &&
-      !willRetry(stratOf(strat), lastId, attempts, timesOf(timesSrc), runId, error),
+    filter: (s, f) =>
+      currentIn(s, f) &&
+      !willRetry(stratOf(s.strat), s.laneIds, s.attempts, timesOf(s.timesSrc), f.runId, f.params, f.error),
     fn: (_s, { params, error }) => ({ params, error }),
     target: finalFail,
   });
   sample({
     clock: failed,
-    source: { lastId: $runId, strat: $strategySrc },
-    filter: ({ lastId, strat }, { runId }) => !isCurrent(stratOf(strat), lastId, runId),
-    fn: (_s, { params }) => ({ params }),
+    source: { laneIds: $laneIds, strat: $strategySrc },
+    filter: (s, f) => !currentIn(s, f),
+    fn: staleAbort,
     target: aborted,
   });
 
@@ -692,8 +773,8 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
   sample({
     clock: sleepFx.doneData,
-    source: { lastId: $runId, strat: $strategySrc },
-    filter: ({ lastId, strat }, payload) => isCurrent(stratOf(strat), lastId, (payload as Run<Params>).runId),
+    source: { laneIds: $laneIds, strat: $strategySrc },
+    filter: (s, payload) => currentIn(s, payload as Run<Params>),
     fn: (_s, payload) => payload as Run<Params>,
     target: toRunFx,
   });
@@ -710,8 +791,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // ---- invalidation ----
   const invalidate = merge([reset, cancel]);
   $runId.on(invalidate, (id) => id + 1);
+  $laneIds.reset(invalidate); // wipe currency in every lane -> pending settles report 'cancelled'
   $retrying.reset(invalidate);
-  sample({ clock: invalidate, target: abortInFlightFx });
+  sample({ clock: invalidate, fn: () => null, target: abortInFlightFx });
 
   // ---- state stores ----
   $status
@@ -893,6 +975,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       // these constants to scoped/reactive state, or fork-correctness breaks silently.
       setStrategy: (s) => {
         strategyConst = s;
+      },
+      setLaneKey: (fn) => {
+        laneKeyConst = fn;
       },
       setRetry: (cfg) => {
         if (!cfg) {

@@ -34,6 +34,26 @@ describe('createInfiniteQuery', () => {
     expect(scope.getState(query.$status)).toBe('done');
   });
 
+  it('supports void params (offset-only pagination, no public params)', async () => {
+    const fetchPage = createEffect(
+      async ({ pageParam }: { params: void; pageParam: number }): Promise<Page> => ({
+        items: [`p-${pageParam}`],
+        next: pageParam < 1 ? pageParam + 1 : null,
+      }),
+    );
+    const query = createInfiniteQuery({
+      effect: fetchPage,
+      initialPageParam: 0,
+      getNextPageParam: ({ lastPage }) => lastPage.next,
+    });
+    const scope = fork();
+    await allSettled(query.start, { scope, params: undefined });
+    await allSettled(query.fetchNext, { scope });
+
+    expect(scope.getState(query.$pages).flatMap((p) => p.items)).toEqual(['p-0', 'p-1']);
+    expect(scope.getState(query.$status)).toBe('done');
+  });
+
   it('fetchNext appends pages until exhausted', async () => {
     const query = makeQuery();
     const scope = fork();

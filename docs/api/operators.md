@@ -15,6 +15,54 @@ How overlapping runs behave: `TAKE_LATEST` (default), `TAKE_FIRST`, `TAKE_EVERY`
 concurrency(searchQuery, { strategy: 'TAKE_LATEST' }); // new run aborts the previous
 ```
 
+Add a **lane key** to make runs compete only with runs of the same key — refreshing one
+table row no longer cancels its neighbours:
+
+```ts
+concurrency(rowQuery, { strategy: 'TAKE_LATEST', key: ({ rowId }) => String(rowId) });
+```
+
+Supersede (`TAKE_LATEST`) and busy-drop (`TAKE_FIRST`) apply **within a lane**; `cancel` /
+`reset` still affect every lane. `$data` stays single per query — lanes partition
+cancellation, not data (the last lane to settle wins the store; keep per-key _data_ in a
+cached query keyed by params instead).
+
+Try it live — three pokedex slots over the real PokeAPI, each slot is a lane:
+
+<LanesDemo>
+<template #code>
+
+```ts
+import { createQuery, createRequestFx } from 'effector-refetch';
+
+const fetchPokemonFx = createRequestFx(async ({ slot, id }: { slot: number; id: number }, { signal }) => {
+  const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`, { signal });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return { slot, id, name: data.name, sprite: data.sprites.front_default };
+});
+
+const pokedexQuery = createQuery({
+  effect: fetchPokemonFx,
+  // one lane per slot: refreshing slot 2 never aborts slot 1's request
+  concurrency: { strategy: 'TAKE_LATEST', key: ({ slot }) => String(slot) },
+});
+
+pokedexQuery.aborted.watch(({ params, reason }) => {
+  // reason: 'superseded' | 'cancelled' | 'take-first-busy' | 'disabled'
+  console.log(`slot ${params.slot} dropped: ${reason}`);
+});
+
+pokedexQuery.start({ slot: 1, id: 25 }); // pikachu
+pokedexQuery.start({ slot: 2, id: 1 }); //  bulbasaur — doesn't touch slot 1
+pokedexQuery.start({ slot: 2, id: 4 }); //  charmander — supersedes ONLY bulbasaur
+```
+
+</template>
+</LanesDemo>
+
+Runnable script version: [`examples/concurrency-lanes.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/concurrency-lanes.ts).
+
 ## `retry`
 
 `retry(query, 3)` or a config. Each attempt is a real effect call; `filter` decides which failures
