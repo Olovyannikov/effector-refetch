@@ -132,3 +132,48 @@ describe('useSuspenseQuery', () => {
     await waitFor(() => expect(screen.getByText('boundary: nope')).toBeTruthy());
   });
 });
+
+describe('useSuspenseQuery — cancel while suspended (audit regression)', () => {
+  afterEach(() => cleanup());
+
+  it('a cancelled data-less query does not hang in the fallback: the retry render restarts it', async () => {
+    const { allSettled } = await import('effector');
+    let calls = 0;
+    const resolvers: Array<(v: string) => void> = [];
+    const fx = createEffect((_: void) => {
+      calls++;
+      return new Promise<string>((res) => resolvers.push(res));
+    });
+    const query = createQuery({ effect: fx });
+    const scope = fork();
+
+    function View() {
+      const v = useSuspenseQuery(query);
+      return <span>value: {v}</span>;
+    }
+    render(
+      <Provider value={scope}>
+        <Suspense fallback={<span>loading</span>}>
+          <View />
+        </Suspense>
+      </Provider>,
+    );
+    expect(screen.getByText('loading')).toBeTruthy();
+    expect(calls).toBe(1);
+
+    // cancel the in-flight run: no data, status back to initial. Before the fix the
+    // suspense promise never resolved and the component hung in the fallback forever.
+    // NOT awaited: the first run's promise never settles (non-abortable effect), so the
+    // scope never goes idle — which is exactly the hardest flavor of this bug.
+    const cancelled = allSettled(query.cancel, { scope });
+
+    // the retry render auto-restarts the query...
+    await waitFor(() => expect(calls).toBe(2));
+    // ...and the second run's data renders normally
+    resolvers[1]('recovered');
+    await waitFor(() => expect(screen.getByText('value: recovered')).toBeTruthy());
+
+    resolvers[0]('stale'); // let the zombie run settle so the scope can idle
+    await cancelled;
+  });
+});
