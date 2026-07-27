@@ -128,6 +128,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const ns = config.name ?? (config.debug ? 'query' : undefined);
   const nm = (suffix: string) => (ns ? { name: `${ns}.${suffix}` } : undefined);
   const evName = (suffix: string): string | undefined => (ns ? `${ns}.${suffix}` : undefined);
+  // SSR: explicit stable sids make the public stores travel through effector's
+  // `serialize(scope)` without the babel/SWC plugin (which never processes a
+  // prebuilt node_modules dist). Stability across separate server/client bundles
+  // follows cacheScopeId — same caveat as cache namespacing: give the query a
+  // `name` when the two bundles may initialize modules in a different order.
+  const ser = (suffix: string) => ({ ...nm(suffix), sid: `er/${cacheScopeId}/${suffix}` });
+  // runtime-only stores: never meaningful to transfer — silence serialize errors
+  const ign = (suffix: string) => ({ ...nm(suffix), serialize: 'ignore' as const });
 
   // ---- config: reactive sourced stores (fork-correct) + constant closures ----
   const $strategySrc: Store<ConcurrencyStrategy | null> =
@@ -224,15 +232,15 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const initialData = config.initialData ?? resolvePlaceholder(null);
 
   const $enabled = config.enabled ?? createStore(true, nm('$enabled'));
-  const $data = createStore<Mapped | null>(initialData ?? null, nm('$data'));
+  const $data = createStore<Mapped | null>(initialData ?? null, ser('$data'));
   const $isPlaceholderData = createStore(
     config.placeholderData != null && config.initialData == null,
-    nm('$isPlaceholderData'),
+    ser('$isPlaceholderData'),
   );
-  const $error = createStore<Error | null>(null, nm('$error'));
-  const $status = createStore<QueryStatus>('initial', nm('$status'));
-  const $stale = createStore(false, nm('$stale'));
-  const $params = createStore<Params | null>(null, nm('$params'));
+  const $error = createStore<Error | null>(null, ser('$error'));
+  const $status = createStore<QueryStatus>('initial', ser('$status'));
+  const $stale = createStore(false, ser('$stale'));
+  const $params = createStore<Params | null>(null, ser('$params'));
 
   const aborted = createEvent<{ params: Params; reason: AbortReason }>(evName('aborted'));
   // farfetched-compatible `finished.skip`: the `enabled` gate prevented execution.
@@ -244,16 +252,13 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   );
 
   // ---- internal units ----
-  const $runId = createStore(0, nm('$runId'));
+  const $runId = createStore(0, ign('$runId'));
   // lane -> last tagged runId; currency checks compare against their own lane only.
   // Always replaced immutably, so the shared initial Map is never written to.
-  const $laneIds = createStore<ReadonlyMap<string, number>>(new Map(), {
-    ...nm('$laneIds'),
-    serialize: 'ignore',
-  });
+  const $laneIds = createStore<ReadonlyMap<string, number>>(new Map(), ign('$laneIds'));
   // count of runs currently in a retry pause; $retrying derives from it, so one run's
   // pause ending (or a debounce sleep, which has its own effect) can't clear another's
-  const $retryWaits = createStore(0, nm('$retryWaits'));
+  const $retryWaits = createStore(0, ign('$retryWaits'));
   const $retrying = $retryWaits.map((n) => n > 0);
 
   const sleep = ({ ms, payload }: { ms: number; payload: unknown }) =>
@@ -281,10 +286,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     /** lane -> number of runs occupying it (barrier wait + effect execution) */
     laneBusy: Map<string, number>;
   }
-  const $runRegistry = createStore<RunRegistry | null>(null, {
-    ...nm('$runRegistry'),
-    serialize: 'ignore',
-  });
+  const $runRegistry = createStore<RunRegistry | null>(null, ign('$runRegistry'));
   const ensureRegistry = createEvent(evName('ensureRegistry'));
   $runRegistry.on(
     ensureRegistry,
@@ -400,14 +402,8 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const dispatch = createEvent<Run<Params>>(evName('dispatch'));
   /** settled or dropped dispatched run — frees its lane */
   const laneFreed = createEvent<Run<Params>>(evName('laneFreed'));
-  const $laneActive = createStore<ReadonlyMap<string, number>>(new Map(), {
-    ...nm('$laneActive'),
-    serialize: 'ignore',
-  });
-  const $laneQueue = createStore<ReadonlyMap<string, Array<Run<Params>>>>(new Map(), {
-    ...nm('$laneQueue'),
-    serialize: 'ignore',
-  });
+  const $laneActive = createStore<ReadonlyMap<string, number>>(new Map(), ign('$laneActive'));
+  const $laneQueue = createStore<ReadonlyMap<string, Array<Run<Params>>>>(new Map(), ign('$laneQueue'));
   const isQueue = (strat: ConcurrencyStrategy | null, defs: QueryDefaults) =>
     stratOf(strat, defs) === 'QUEUE';
   const activeOf = (map: ReadonlyMap<string, number>, lane: string) => map.get(lane) ?? 0;
@@ -1176,7 +1172,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   // guess from `data != null`: cancelling a refetch that followed a failure with stale
   // data must stay 'fail', not flip to 'done'. Only when actually in-flight: cancelling
   // an already-settled query is a no-op.
-  const $lastSettled = createStore<QueryStatus>('initial', nm('$lastSettled'))
+  const $lastSettled = createStore<QueryStatus>('initial', ser('$lastSettled'))
     .on([dataAccepted, dataRecovered, dataCacheHit, dataStale], () => 'done' as const)
     .on(finalFail, () => 'fail' as const)
     .reset(reset);
@@ -1219,7 +1215,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   // Track the *current* run explicitly: a cancel/reset clears it immediately,
   // even if a non-abortable effect's promise is still resolving in the background.
-  const $inflight = createStore(false, nm('$inflight'))
+  const $inflight = createStore(false, ign('$inflight'))
     .on(tagged, () => true)
     .on([dataAccepted, dataRecovered, finalFail, dataCacheHit], () => false)
     .on(invalidate, () => false);
@@ -1306,10 +1302,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
 
   const asyncCallRegistered = createEvent<{ token: number; key: string }>(evName('asyncCallRegistered'));
   const asyncTokensTaken = createEvent<number[]>(evName('asyncTokensTaken'));
-  const $asyncTokens = createStore<Array<{ token: number; key: string }>>([], {
-    ...nm('$asyncTokens'),
-    serialize: 'ignore',
-  })
+  const $asyncTokens = createStore<Array<{ token: number; key: string }>>([], ign('$asyncTokens'))
     .on(asyncCallRegistered, (list, call) => [...list, call])
     .on(asyncTokensTaken, (list, tokens) => list.filter((t) => !tokens.includes(t.token)));
 

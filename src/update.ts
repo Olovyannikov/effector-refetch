@@ -150,7 +150,7 @@ export function optimisticUpdate<QM, P, R>(config: OptimisticUpdateConfig<QM, P,
   };
 
   // invariant: query data === queue.entries folded (in start order) over queue.base
-  const $queue = createStore<Queue>({ base: null, entries: [], written: null });
+  const $queue = createStore<Queue>({ base: null, entries: [], written: null }, { serialize: 'ignore' });
   const applied = createEvent<{ queue: Omit<Queue, 'written'>; data: QM | null }>();
   $queue.on(applied, (_q, { queue, data }) => ({ ...queue, written: data }));
   sample({ clock: applied, fn: ({ data }: { data: QM | null }) => data, target: setData });

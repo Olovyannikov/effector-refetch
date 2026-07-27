@@ -30,7 +30,10 @@ export interface QueryDefaults {
   timeout?: number;
 }
 
-export const $queryDefaults = createStore<QueryDefaults>({}, { name: 'refetch/$queryDefaults' });
+export const $queryDefaults = createStore<QueryDefaults>(
+  {},
+  { name: 'refetch/$queryDefaults', sid: 'er/$queryDefaults' },
+);
 
 /** Merge a patch into `$queryDefaults` (pass `undefined` values to keep, use a fresh fork value to clear). */
 export const setQueryDefaults = createEvent<QueryDefaults>('refetch/setQueryDefaults');
