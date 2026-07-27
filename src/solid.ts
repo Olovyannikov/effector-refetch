@@ -4,8 +4,8 @@ import type { Query, QueryStatus, UseQueryOptions } from './types';
 
 export type { UseQueryOptions };
 
-export interface UseQuerySolidResult<Params, Mapped, Error> {
-  data: Accessor<Mapped | null>;
+export interface UseQuerySolidResult<Params, Mapped, Error, Data = Mapped | null> {
+  data: Accessor<Data>;
   error: Accessor<Error | null>;
   status: Accessor<QueryStatus>;
   pending: Accessor<boolean>;
@@ -38,10 +38,10 @@ export interface UseQuerySolidResult<Params, Mapped, Error> {
  * It does NOT start the query — call `start`/`refresh` yourself, keeping the
  * query explicit and SSR-friendly.
  */
-export function useQuery<Params, Result, Error, Mapped>(
-  query: Query<Params, Result, Error, Mapped>,
+export function useQuery<Params, Result, Error, Mapped, Data>(
+  query: Query<Params, Result, Error, Mapped, Data>,
   options?: UseQueryOptions,
-): UseQuerySolidResult<Params, Mapped, Error> {
+): UseQuerySolidResult<Params, Mapped, Error, Data> {
   const state = useUnit({
     data: query.$data,
     error: query.$error,

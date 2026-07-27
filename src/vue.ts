@@ -4,8 +4,8 @@ import type { Query, QueryStatus, UseQueryOptions } from './types';
 
 export type { UseQueryOptions };
 
-export interface UseQueryVueResult<Params, Mapped, Error> {
-  data: Ref<Mapped | null>;
+export interface UseQueryVueResult<Params, Mapped, Error, Data = Mapped | null> {
+  data: Ref<Data>;
   error: Ref<Error | null>;
   status: Ref<QueryStatus>;
   pending: Ref<boolean>;
@@ -31,12 +31,12 @@ export interface UseQueryVueResult<Params, Mapped, Error> {
  * Vue binding for a Query. Wraps effector-vue's `useUnit` (scope-aware via the
  * EffectorScope plugin) and adds derived status flags. Does not auto-start.
  */
-export function useQuery<Params, Result, Error, Mapped>(
-  query: Query<Params, Result, Error, Mapped>,
+export function useQuery<Params, Result, Error, Mapped, Data>(
+  query: Query<Params, Result, Error, Mapped, Data>,
   options?: UseQueryOptions,
-): UseQueryVueResult<Params, Mapped, Error> {
+): UseQueryVueResult<Params, Mapped, Error, Data> {
   const u = useUnit(query) as unknown as {
-    data: Ref<Mapped | null>;
+    data: Ref<Data>;
     error: Ref<Error | null>;
     status: Ref<QueryStatus>;
     pending: Ref<boolean>;

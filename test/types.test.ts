@@ -4,6 +4,8 @@ import {
   createQuery,
   createMutation,
   createInfiniteQuery,
+  retry,
+  cache,
   type AbortReason,
   type QueryDefaults,
 } from '../src';
@@ -38,6 +40,29 @@ describe('type-level: createQuery', () => {
     createQuery({ effect: fetchUserFx, enabled: createStore(true) });
 
     expect(true).toBe(true); // the assertions above are compile-time
+  });
+
+  it('initialData narrows $data to non-null (farfetched-compatible)', () => {
+    const withInitial = createQuery({ effect: fetchUserFx, initialData: { id: 0, name: 'anon' } });
+    expectTypeOf(withInitial.$data).toEqualTypeOf<Store<{ id: number; name: string }>>();
+
+    // mapData + initialData: the store carries the MAPPED non-null type
+    const mappedInitial = createQuery({
+      effect: fetchUserFx,
+      mapData: ({ result }) => result.name,
+      initialData: 'anon',
+    });
+    expectTypeOf(mappedInitial.$data).toEqualTypeOf<Store<string>>();
+
+    // without initialData the nullable default stays
+    const plain = createQuery({ effect: fetchUserFx });
+    expectTypeOf(plain.$data).toEqualTypeOf<Store<{ id: number; name: string } | null>>();
+
+    // the narrowed query still feeds the operators (Data param defaults are compatible)
+    retry(withInitial, { times: 1 });
+    cache(withInitial);
+
+    expect(true).toBe(true);
   });
 
   it('rejects malformed configs (compile-time only, never executed)', () => {

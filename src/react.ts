@@ -7,8 +7,8 @@ export type { UseQueryOptions };
 
 type AnyQuery = Query<any, any, any, any>;
 
-export interface UseQueryResult<Params, Mapped, Error> {
-  data: Mapped | null;
+export interface UseQueryResult<Params, Mapped, Error, Data = Mapped | null> {
+  data: Data;
   error: Error | null;
   status: QueryStatus;
   pending: boolean;
@@ -39,10 +39,10 @@ export interface UseQueryResult<Params, Mapped, Error> {
  * It does NOT start the query — call `start`/`refresh` yourself (e.g. in an
  * effect), keeping the query explicit and SSR-friendly.
  */
-export function useQuery<Params, Result, Error, Mapped>(
-  query: Query<Params, Result, Error, Mapped>,
+export function useQuery<Params, Result, Error, Mapped, Data>(
+  query: Query<Params, Result, Error, Mapped, Data>,
   options?: UseQueryOptions,
-): UseQueryResult<Params, Mapped, Error> {
+): UseQueryResult<Params, Mapped, Error, Data> {
   const state = useUnit({
     data: query.$data,
     error: query.$error,

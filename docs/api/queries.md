@@ -39,6 +39,7 @@ const query = createQuery({
 - **`fallback`** — recover a final failure (after retries) into data: a value or `({ error, params }) => value`; `$status` becomes `done`, `finished.done` fires, the cache is not written; aborts/skips exempt.
 - **`structuralSharing`** — preserve referential identity of unchanged parts of the result (fewer re-renders).
 - **`placeholderData`** — a value or `(prev) => …` shown while there's no real data; `$isPlaceholderData` is `true` until the first real result. Unlike `initialData`, it's not treated as cached.
+- **`initialData`** — the starting `$data` value; with it the store is typed **non-null** (`Store<Data>` instead of `Store<Data | null>`, farfetched-compatible), so no `?.`/guards downstream.
 - **`mapData` / `mapError`** — normalize result / error before the stores.
 - **`source` / `mapParams`** — map public params (+ `source` store values, read fork-correctly) into the effect's params before every run (see [Params mapping](#params-mapping-source-mapparams)).
 - **`tags`** — invalidation tags: a matching [`invalidateTag(...)`](/api/mutations#invalidatetag) purges the query's cache namespace and refetches it with its last params.

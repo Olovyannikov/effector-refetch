@@ -305,10 +305,10 @@ export type QueryState<Params, Data, Error> = {
   | { status: 'fail'; data: Data | null; error: Error }
 );
 
-export type QueryUnitShape<Params, Mapped, Error> = {
+export type QueryUnitShape<Params, Mapped, Error, Data = Mapped | null> = {
   /** The whole state as one discriminated union — see {@link QueryState}. */
   state: Store<QueryState<Params, Mapped, Error>>;
-  data: Store<Mapped | null>;
+  data: Store<Data>;
   error: Store<Error | null>;
   status: Store<QueryStatus>;
   pending: Store<boolean>;
@@ -326,7 +326,12 @@ export type QueryUnitShape<Params, Mapped, Error> = {
   cancel: EventCallable<void>;
 };
 
-export interface Query<Params, Result, Error, Mapped = Result> {
+/**
+ * `Data` is the `$data` value type: `Mapped | null` by default, narrowed to `Mapped`
+ * by the `createQuery({ initialData })` overloads — with initial data the store can
+ * never hold `null` (farfetched-compatible typing).
+ */
+export interface Query<Params, Result, Error, Mapped = Result, Data = Mapped | null> {
   // triggers
   start: EventCallable<Params>;
   /**
@@ -355,7 +360,7 @@ export interface Query<Params, Result, Error, Mapped = Result> {
    * individual stores below — subscribe to whichever granularity fits.
    */
   $state: Store<QueryState<Params, Mapped, Error>>;
-  $data: Store<Mapped | null>;
+  $data: Store<Data>;
   $error: Store<Error | null>;
   $status: Store<QueryStatus>;
   $pending: Store<boolean>;
@@ -394,7 +399,7 @@ export interface Query<Params, Result, Error, Mapped = Result> {
    * `{ data, error, status, pending, stale, enabled, params, start, refetch, refresh, reset, cancel }`.
    * Works with both effector-react and effector-vue.
    */
-  '@@unitShape': () => QueryUnitShape<Params, Mapped, Error>;
+  '@@unitShape': () => QueryUnitShape<Params, Mapped, Error, Data>;
 
   /**
    * `@@trigger` protocol — the query as a reactive trigger (`fired` = `finished.done`),
