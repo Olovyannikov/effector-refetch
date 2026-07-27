@@ -15,3 +15,4 @@ docs/api/reference.md
 .netlify
 .next/
 next-env.d.ts
+*.tsbuildinfo
