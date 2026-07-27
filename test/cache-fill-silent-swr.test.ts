@@ -1,9 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { allSettled, createEffect, createWatch, fork } from 'effector';
 import { createQuery } from '../src';
 import { abortableDeferred } from './support/harness';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+// Staleness must elapse deterministically: on a fast runner a real wait can fit
+// inside staleAfter, leaving the entry fresh and skipping the revalidation.
+// Fake ONLY Date (real setTimeout keeps driving tick()/allSettled) and jump the
+// clock; the shift stays active through the revalidating run (afterEach restores).
+const ageBy = (ms: number) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(Date.now() + ms);
+};
 
 describe('cache: fillOnAbort', () => {
   it('a superseded run is not aborted and its result warms the cache', async () => {
@@ -63,6 +71,10 @@ describe('cache: fillOnAbort', () => {
 });
 
 describe('cache: silent SWR', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('a failed revalidation keeps serving stale silently; finished.fail still fires', async () => {
     let failNow = false;
     const fx = createEffect(async (n: number) => {
@@ -82,7 +94,7 @@ describe('cache: silent SWR', () => {
     });
 
     await allSettled(query.start, { scope, params: 1 }); // seed the cache
-    await tick(); // let staleAfter: 1 elapse
+    ageBy(5); // jump past staleAfter: 1
 
     failNow = true;
     await allSettled(query.start, { scope, params: 1 }); // stale serve + failed revalidation
@@ -103,7 +115,7 @@ describe('cache: silent SWR', () => {
     const scope = fork();
 
     await allSettled(query.start, { scope, params: 1 });
-    await tick();
+    ageBy(5);
 
     failNow = true;
     await allSettled(query.start, { scope, params: 1 });
