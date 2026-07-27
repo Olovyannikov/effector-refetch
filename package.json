@@ -89,6 +89,16 @@
         "default": "./dist/apollo.cjs"
       }
     },
+    "./openapi": {
+      "import": {
+        "types": "./dist/openapi.d.ts",
+        "default": "./dist/openapi.mjs"
+      },
+      "require": {
+        "types": "./dist/openapi.d.cts",
+        "default": "./dist/openapi.cjs"
+      }
+    },
     "./devtools": {
       "import": {
         "types": "./dist/devtools.d.ts",
@@ -137,6 +147,9 @@
       "apollo": [
         "./dist/apollo.d.ts"
       ],
+      "openapi": [
+        "./dist/openapi.d.ts"
+      ],
       "devtools": [
         "./dist/devtools.d.ts"
       ],
@@ -178,6 +191,7 @@
     "docs:preview": "vitepress preview docs"
   },
   "peerDependencies": {
+    "@hey-api/openapi-ts": ">=0.82.0 <0.83.0",
     "effector": ">=23",
     "effector-react": ">=23",
     "effector-solid": ">=0.23",
@@ -187,6 +201,9 @@
     "vue": ">=3"
   },
   "peerDependenciesMeta": {
+    "@hey-api/openapi-ts": {
+      "optional": true
+    },
     "effector-react": {
       "optional": true
     },
@@ -212,6 +229,7 @@
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
     "@effector/router": "^1.2.0",
+    "@hey-api/openapi-ts": "0.82.5",
     "@shikijs/vitepress-twoslash": "^4.2.0",
     "@size-limit/preset-small-lib": "^12.1.0",
     "@testing-library/react": "^16.3.2",

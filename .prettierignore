@@ -4,4 +4,5 @@ coverage
 pnpm-lock.yaml
 docs/.vitepress/cache
 docs/.vitepress/dist
+examples/openapi-codegen/src/api
 CHANGELOG.md

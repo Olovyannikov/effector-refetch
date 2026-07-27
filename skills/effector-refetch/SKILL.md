@@ -142,6 +142,12 @@ apply); `apolloHandler(getClient, { document, variables })` from `effector-refet
 handler with `client.query` (normalized cache; signal via `context.fetchOptions.signal`). Both are
 structural (no deps) and lazy (`getClient` per fork). Don't combine with the query's own `cache`.
 
+**OpenAPI codegen:** `effector-refetch/openapi` is a `@hey-api/openapi-ts@0.82.x` plugin — add
+`effectorRefetch()` (its `defineConfig` export) to the hey-api `plugins` array and every GET
+becomes a generated `createQuery`, every other method a `createMutation` (`<operationId>Query` /
+`<operationId>Mutation` in `refetch.gen.ts`), typed from the spec, abortable (signal forwarded),
+`throwOnError: true`, with stable `name: '<operationId>'`. Also fits apicraft (same hey-api line).
+
 ## Params mapping (static params / app state in every request)
 
 ```ts

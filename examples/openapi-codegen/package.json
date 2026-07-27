@@ -1,0 +1,22 @@
+{
+  "name": "effector-refetch-example-openapi-codegen",
+  "private": true,
+  "description": "Standalone runner for the OpenAPI codegen example (StackBlitz / local sandbox). Inside the repo the example resolves effector-refetch to ../../src via tsconfig paths instead.",
+  "type": "module",
+  "scripts": {
+    "start": "tsx main.ts",
+    "generate": "openapi-ts"
+  },
+  "dependencies": {
+    "effector": "^23.2.2",
+    "effector-refetch": "latest"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.82.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  },
+  "stackblitz": {
+    "startCommand": "npm start"
+  }
+}
