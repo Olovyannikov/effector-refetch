@@ -136,6 +136,9 @@ interface InfiniteState<PageParam, Page> {
  * (resetting), `fetchNext` appends and (with `getPreviousPageParam`) `fetchPrevious`
  * prepends. `maxPages` caps the window. Built on `createQuery`.
  */
+/** Fallback sid namespace for infinite queries without a `name`. */
+let infiniteCounter = 0;
+
 export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   config:
     | CreateInfiniteQueryConfig<Params, PageParam, Page>
@@ -148,6 +151,11 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   // don't collide with this query's own `<name>.start` etc.
   const ns = config.name ?? (config.debug ? 'infinite' : undefined);
   const nm = (suffix: string) => (ns ? { name: `${ns}.${suffix}` } : undefined);
+  // SSR: explicit stable sids for the public state (same approach and caveats as
+  // the base engine — give the query a `name` for cross-bundle stability)
+  const sidId = config.name ?? `inf${++infiniteCounter}`;
+  const ser = (suffix: string) => ({ ...nm(suffix), sid: `er/${sidId}/${suffix}` });
+  const ign = (suffix: string) => ({ ...nm(suffix), serialize: 'ignore' as const });
   const evName = (suffix: string): string | undefined => (ns ? `${ns}.${suffix}` : undefined);
 
   const call = (req: PageReq<Params, PageParam>): Promise<Page> =>
@@ -217,7 +225,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     };
   };
 
-  const $params = createStore<Params | null>(null, nm('$params'))
+  const $params = createStore<Params | null>(null, ser('$params'))
     // `?? null`: void params arrive as undefined, which effector treats as "skip update"
     .on(start, (_p, params) => params ?? null)
     .reset(reset);
@@ -230,7 +238,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     previousPageParam: null,
     hasPreviousPage: false,
   };
-  const $infinite = createStore<InfiniteState<PageParam, Page>>(initial, nm('$infinite'))
+  const $infinite = createStore<InfiniteState<PageParam, Page>>(initial, ser('$infinite'))
     .on(pageQuery.finished.done, (state, { params: req, result: page }) => {
       let pages: Page[];
       let pageParams: PageParam[];
@@ -268,7 +276,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   // ---- refetchAll: reload every accumulated page, keep the window ----
   // token invalidation (like polling's $pollId): a start/reset during the refetch
   // makes the in-flight result stale, so it must not overwrite the new state
-  const $refetchToken = createStore(0, nm('$refetchToken')).on([start, reset], (n) => n + 1);
+  const $refetchToken = createStore(0, ign('$refetchToken')).on([start, reset], (n) => n + 1);
   const replaceState = createEvent<InfiniteState<PageParam, Page>>(evName('replaceState'));
   $infinite.on(replaceState, (_s, state) => state);
 
@@ -291,7 +299,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
 
   // a failed refetchAll must reach the exposed stores, not only finished.fail —
   // pageQuery's own $error/$status never see the window reload
-  const $refetchAllError = createStore<Error | null>(null, nm('$refetchAllError'))
+  const $refetchAllError = createStore<Error | null>(null, ign('$refetchAllError'))
     .on(refetchAllFx.failData, (_e, error) => error)
     .reset([refetchAllFx, start, reset]);
   const $error = combine($refetchAllError, pageQuery.$error, (all, page) => all ?? page);

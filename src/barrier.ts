@@ -34,7 +34,7 @@ export interface CreateBarrierConfig {
  * running app (not per-`fork` isolation).
  */
 export function createBarrier(config: CreateBarrierConfig = {}): Barrier {
-  const $locked = createStore(false);
+  const $locked = createStore(false, { serialize: 'ignore' });
   const lock = createEvent();
   const unlock = createEvent();
 
@@ -48,7 +48,7 @@ export function createBarrier(config: CreateBarrierConfig = {}): Barrier {
     // are not attributable per-call, so an unrelated settle arriving WHILE the
     // barrier's own run is in flight still unlocks — use a dedicated effect per
     // barrier when that matters.)
-    const $performing = createStore(0);
+    const $performing = createStore(0, { serialize: 'ignore' });
     const launched = sample({ clock: $locked.updates, filter: (locked) => locked });
     $performing.on(launched, (n) => n + 1);
     sample({ clock: launched, target: config.perform });

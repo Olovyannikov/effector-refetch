@@ -48,10 +48,14 @@ await allSettled($queryCache, { scope: clientScope, params: clientCache }); // s
 // cached keys now hit instead of refetching
 ```
 
-Inside a shared scope adapter, entries are namespaced per query — `name` ?? the effect's sid
-?? a creation counter. Give queries stable **`name`s** (or use the effector babel/SWC plugin
-for sids) when the server and client bundles may initialize modules in a different order.
-`$queryCache` is excluded from `serialize(scope)` automatically.
+**No effector babel/SWC plugin needed for either layer.** The public stores (`$data` /
+`$status` / `$error` / `$params` / …) carry explicit stable sids (`er/<name>/$data`), so
+`serialize(scope)` picks them up even though the library ships prebuilt (bundler plugins never
+process `node_modules`); internal machinery stores are `serialize: 'ignore'`. Cache entries are
+namespaced the same way — `name` ?? the effect's sid ?? a creation counter. Give queries stable
+**`name`s** when the server and client bundles may initialize modules in a different order
+(sids and cache namespaces both follow the name). `$queryCache` is excluded from
+`serialize(scope)` automatically.
 
 Only adapters that can enumerate entries (e.g. `inMemoryCache`) are dehydratable; web-storage
 adapters already persist themselves. Without `$queryCache` everything works as before — the
