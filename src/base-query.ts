@@ -15,6 +15,7 @@ import {
 
 import type {
   AbortReason,
+  QueryState,
   CacheAdapter,
   ConcurrencyStrategy,
   CreateQueryConfig,
@@ -1186,6 +1187,24 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   );
   const $isRefetching = combine($pending, $isInitialLoading, (p, initial) => p && !initial);
 
+  // the whole state as ONE discriminated union — matching on `status` narrows
+  // `data`/`error` (see QueryState); a plain combine over the granular stores
+  const $state = combine(
+    {
+      status: $status,
+      data: $data,
+      error: $error,
+      pending: $pending,
+      stale: $stale,
+      isPlaceholderData: $isPlaceholderData,
+      isInitialLoading: $isInitialLoading,
+      isRefetching: $isRefetching,
+      enabled: $enabled,
+      params: $params,
+    },
+    (s) => s as QueryState<Params, Mapped, Error>,
+  );
+
   // ---- finished / lifecycle wiring ----
   // the mapped events carry the SAME object instance that landed in $data
   sample({ clock: [dataAccepted, dataRecovered, dataCacheHit], target: finishedDone });
@@ -1314,6 +1333,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   return {
     start: start as EventCallable<Params>,
     startAsync,
+    $state,
     refresh: refresh as EventCallable<Params>,
     refetch: refetch as EventCallable<Params>,
     prefetch: prefetch as EventCallable<Params>,
@@ -1404,6 +1424,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     },
 
     '@@unitShape': () => ({
+      state: $state,
       data: $data,
       error: $error,
       status: $status,

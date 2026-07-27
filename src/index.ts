@@ -92,6 +92,7 @@ export type {
   AbortableEffect,
   QueryEffect,
   ConcurrencyStrategy,
+  QueryState,
   ConcurrencyConfig,
   AbortReason,
   RetryConfig,

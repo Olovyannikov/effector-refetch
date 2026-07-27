@@ -68,7 +68,8 @@ rejects on failure/discard; `mutateAsync` on mutations), `refresh` (force, ignor
 `prefetch` (warm cache only).
 
 **State** (Store): `$data`, `$error`, `$status` (`'initial'|'pending'|'done'|'fail'`),
-`$pending`, `$stale`, `$enabled`, `$params`, `$isPlaceholderData`.
+`$pending`, `$stale`, `$enabled`, `$params`, `$isPlaceholderData`; `$state` — everything as ONE
+discriminated union (`status === 'done'` narrows `data` non-null, `'fail'` narrows `error`).
 
 **Lifecycle** (Event): `finished.done {params,result}`, `finished.fail {params,error}`,
 `finished.finally`, `aborted {params, reason}` (`reason`: `'cancelled' | 'superseded' | 'take-first-busy' | 'disabled'`).

@@ -68,6 +68,28 @@ instead of killing the tick: `mapParams` / `mapData` fail the run (`finished.fai
 single lane, and throwing `connectQuery` / `invalidate` predicates count as `false`.
 :::
 
+## The whole state as one object: `$state`
+
+`$state` is a **discriminated union** — matching on `status` narrows the other fields,
+so no more `data?.` after you've checked the status:
+
+```ts
+const state = useUnit(query.$state); // or scope.getState(query.$state)
+
+if (state.status === 'done') {
+  state.data; // Data — non-null, no cast
+  state.error; // null — statically
+}
+if (state.status === 'fail') {
+  state.error; // Error — non-null
+  state.data; // Data | null — stale data may still be around
+}
+```
+
+The flags (`pending`, `stale`, `isInitialLoading`, `isRefetching`, `isPlaceholderData`,
+`enabled`, `params`) ride along in every variant. Derived from the granular stores —
+subscribe to whichever granularity fits.
+
 ## Imperative start: `startAsync`
 
 `query.startAsync` is a real `Effect<Params, Data>` — start a run and `await` its outcome:
