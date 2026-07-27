@@ -121,6 +121,25 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
 - **your own** stores still need sids: pass one explicitly (`createStore('', { sid: '…' })`) or
   add [`@effector/swc-plugin`](https://github.com/effector/swc-plugin) for your app code.
 
+## Practices from production
+
+Conventions proven by real SSR + effector codebases that transfer to this setup as-is:
+
+- **Narrow event payloads.** Fire `pageStarted` with exactly what the model needs
+  (`{ q }`, `{ id }`) — never the whole `searchParams`/context object. A wide payload flows
+  through `sample` into `query.start`, and framework types leak into your effects' params.
+- **Two kinds of entry events.** Server page events (`pageStarted`, `userPageStarted`) carry
+  SSR data. Add a **client-only** `appStarted` — fired once from a small client component on
+  hydration — for wiring that can't run on the server: `effector-storage`'s
+  `persist(..., { pickup: appStarted })`, queries whose auth token lives in `localStorage`,
+  analytics.
+- **Slice layout.** At scale, keep each domain slice as `api/` (queries/mutations) + `model/`
+  (entry events, `sample` wiring) + `ui/` (dumb `useUnit` views) — the FSD convention; the
+  page files stay thin adapters that only translate route params into model events.
+- **Components never call `.start`.** Every query start goes through an event + `sample` — the
+  component's only job is `useUnit`. This is what keeps the whole flow replayable in tests via
+  `allSettled(pageStarted, { scope, params })`.
+
 ## Server-side URLs
 
 Relative URLs only exist in the browser. On the server, point the request at your own origin:
