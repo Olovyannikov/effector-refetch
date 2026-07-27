@@ -223,6 +223,13 @@ expect(scope.getState(userQuery.$data)).toEqual(/* ... */);
   every query in that scope gets an isolated adapter (entries namespaced per query by
   `name` ?? effect sid); transfer with `dehydrate(cache)` / `hydrate(cache, snapshot)`.
   Without `$queryCache` adapters are module-level and shared across scopes.
+- **Store-layer transfer needs NO effector plugin**: public stores carry explicit stable sids
+  (`er/<name>/$data`, …) — `serialize(scope)` → `fork({ values })` restores $data/$status with
+  no flash. Give queries a stable `name`; the USER's own stores still need explicit sids.
+- **Next.js (App Router)**: one entry event per page (`pageStarted`); the server component does
+  `fork()` → `allSettled(pageStarted, { params })` → `serialize(scope)` → nested
+  `<EffectorNext values>`; root layout holds a bare `<EffectorNext>`. Client navigations re-run
+  the target page's server component — no extra hooks. See docs recipe `recipes/nextjs`.
 
 ## Barrier (auth 401) & offline
 
