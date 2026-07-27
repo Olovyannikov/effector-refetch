@@ -414,6 +414,12 @@ export interface Query<Params, Result, Error, Mapped = Result, Data = Mapped | n
   $error: Store<Error | null>;
   $status: Store<QueryStatus>;
   $pending: Store<boolean>;
+  /** `$status === 'done'` (farfetched-compatible flag). */
+  $succeeded: Store<boolean>;
+  /** `$status === 'fail'` (farfetched-compatible flag). */
+  $failed: Store<boolean>;
+  /** Settled either way: `$status` is `'done'` or `'fail'` (farfetched-compatible flag). */
+  $finished: Store<boolean>;
   /** A run is in flight and there's no real data yet (placeholder doesn't count) — show a skeleton. */
   $isInitialLoading: Store<boolean>;
   /** A run is in flight over existing real data (refetch / polling / SWR) — show data + a corner spinner. */
@@ -519,6 +525,12 @@ export interface Mutation<Params, Result, Error, Mapped = Result> {
   $error: Store<Error | null>;
   $status: Store<QueryStatus>;
   $pending: Store<boolean>;
+  /** `$status === 'done'` (farfetched-compatible flag). */
+  $succeeded: Store<boolean>;
+  /** `$status === 'fail'` (farfetched-compatible flag). */
+  $failed: Store<boolean>;
+  /** Settled either way: `$status` is `'done'` or `'fail'` (farfetched-compatible flag). */
+  $finished: Store<boolean>;
   $params: Store<Params | null>;
 
   finished: QueryFinished<Params, Mapped, Error>;

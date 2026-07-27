@@ -47,6 +47,7 @@ effect**, and inline options are available alongside operators.
 | contracts                              | `zodContract` / `runtypesContract` / `ioTsContract` / `superstructContract` / `typedContract` / `standardSchemaContract` / `createContract` |
 | `finished.{success,failure,skip}`      | same names (`success`/`failure` alias `done`/`fail`; `skip` on the `enabled` gate)                                                          |
 | `$data / $error / $status / $pending`  | same names                                                                                                                                  |
+| `$succeeded / $failed / $finished`     | same names (derived from `$status`)                                                                                                         |
 
 Notable differences:
 

@@ -50,6 +50,9 @@ const query = createQuery({
 (refetch / поллинг / SWR-ревалидация) — данные видимы, спиннер в углу.
 Запускаемое демо: [`examples/loading-flags.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/loading-flags.ts).
 
+Статусные флаги (совместимы с farfetched, производные от `$status`, у запросов **и** мутаций):
+`$succeeded` (`'done'`), `$failed` (`'fail'`), `$finished` (завершился любым исходом).
+
 `query.prefetch(params)` прогревает кэш под `params` **без** изменения `$data`/`$status`
 (no-op без кэша, пропускает свежие записи) — например, префетч следующей страницы по hover.
 

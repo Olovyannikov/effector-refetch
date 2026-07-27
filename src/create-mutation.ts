@@ -53,6 +53,9 @@ export function createMutation<Params, Result, Error = unknown, Mapped = Result>
     $error: query.$error,
     $status: query.$status,
     $pending: query.$pending,
+    $succeeded: query.$succeeded,
+    $failed: query.$failed,
+    $finished: query.$finished,
     $params: query.$params,
 
     finished: query.finished,

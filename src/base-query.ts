@@ -1221,6 +1221,11 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     .on(invalidate, () => false);
   const $pending = combine($inflight, $retrying, (p, r) => p || r);
 
+  // farfetched-compatible status flags — derived, so they need no sids to transfer
+  const $succeeded = $status.map((s) => s === 'done');
+  const $failed = $status.map((s) => s === 'fail');
+  const $settled = $status.map((s) => s === 'done' || s === 'fail');
+
   // first load vs background refetch: a placeholder is not real data, initialData is
   const $isInitialLoading = combine(
     $pending,
@@ -1384,6 +1389,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     $error,
     $status,
     $pending,
+    $succeeded,
+    $failed,
+    $finished: $settled,
     $isInitialLoading,
     $isRefetching,
     $stale,
