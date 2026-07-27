@@ -6,6 +6,8 @@ import {
   ioTsContract,
   runtypesContract,
   standardSchemaContract,
+  superstructContract,
+  typedContract,
   ValidationError,
   zodContract,
 } from '../src';
@@ -130,6 +132,51 @@ describe('validation', () => {
     expect(scope.getState(q.$data)).toEqual({ id: 1 });
     await allSettled(q.start, { scope, params: false });
     expect((scope.getState(q.$error) as ValidationError).validationErrors).toEqual(['Invalid value at id']);
+  });
+
+  it('superstructContract works with a superstruct-shaped struct', async () => {
+    const struct = {
+      validate: (raw: unknown) =>
+        typeof (raw as { id?: unknown })?.id === 'number'
+          ? ([undefined, raw as { id: number }] as [undefined, { id: number }])
+          : ([
+              {
+                message: 'Expected a number',
+                failures: () => [{ path: ['id'], message: 'Expected a number' }],
+              },
+              undefined,
+            ] as [
+              { message: string; failures: () => Array<{ path: string[]; message: string }> },
+              undefined,
+            ]),
+    };
+    const q = createQuery({
+      effect: createEffect(async (ok: boolean) => (ok ? { id: 1 } : { id: 'x' }) as any),
+      contract: superstructContract(struct),
+    });
+    const scope = fork();
+    await allSettled(q.start, { scope, params: true });
+    expect(scope.getState(q.$data)).toEqual({ id: 1 });
+    await allSettled(q.start, { scope, params: false });
+    expect((scope.getState(q.$error) as ValidationError).validationErrors).toEqual(['id: Expected a number']);
+  });
+
+  it('typedContract works with a typed-contracts-shaped validator', async () => {
+    const isUser = (valueName: string, value: unknown) =>
+      typeof (value as { id?: unknown })?.id === 'number'
+        ? (value as { id: number })
+        : new Error(`${valueName} expected { id: number }`);
+    const q = createQuery({
+      effect: createEffect(async (ok: boolean) => (ok ? { id: 1 } : {}) as any),
+      contract: typedContract(isUser),
+    });
+    const scope = fork();
+    await allSettled(q.start, { scope, params: true });
+    expect(scope.getState(q.$data)).toEqual({ id: 1 });
+    await allSettled(q.start, { scope, params: false });
+    expect((scope.getState(q.$error) as ValidationError).validationErrors).toEqual([
+      'response expected { id: number }',
+    ]);
   });
 
   it('@withease/contracts works directly as a contract (no adapter)', async () => {

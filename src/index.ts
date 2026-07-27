@@ -79,6 +79,8 @@ export {
   standardSchemaContract,
   runtypesContract,
   ioTsContract,
+  superstructContract,
+  typedContract,
   type Contract,
 } from './validation';
 export { attachQueryLogger, type QueryLogEntry, type QueryLogType, type QueryLoggerOptions } from './inspect';

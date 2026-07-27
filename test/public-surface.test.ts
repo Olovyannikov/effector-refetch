@@ -55,6 +55,8 @@ const FUNCTIONS = [
   'zodContract',
   'ioTsContract',
   'runtypesContract',
+  'superstructContract',
+  'typedContract',
   'standardSchemaContract',
   'isRequestError',
   'isHttpError',
