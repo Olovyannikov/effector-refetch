@@ -42,14 +42,18 @@ export interface JsonRequest<Params> {
   headers?: Sourced<Record<string, string>, Params>;
 }
 
-export interface CreateJsonQueryConfig<Params, Response> {
+export interface CreateJsonQueryConfig<Params, Response, Mapped = Response> {
   request: JsonRequest<Params>;
   response?: { contract?: Contract<Response> };
+  /** Reshape the (validated) response before it lands in `$data` — same as `createQuery`'s. */
+  mapData?: (ctx: { result: Response; params: Params }) => Mapped;
+  /** Custom validation: return true/void = ok, false or string[] = invalid — same as `createQuery`'s. */
+  validate?: (ctx: { result: Response; params: Params }) => boolean | string[] | void;
   concurrency?: ConcurrencyStrategy | Store<ConcurrencyStrategy>;
   retry?: number | RetryConfig<RequestError>;
   cache?: boolean | CacheConfig<Params>;
   enabled?: Store<boolean>;
-  initialData?: Response;
+  initialData?: Mapped;
   name?: string;
 }
 
@@ -191,15 +195,17 @@ export function createJsonRequestFx<Params = void, Response = unknown>(
  *     response: { contract: zodContract(UserSchema) },
  *   });
  */
-export function createJsonQuery<Params = void, Response = unknown>(
-  config: CreateJsonQueryConfig<Params, Response>,
-): Query<Params, Response, RequestError, Response> {
+export function createJsonQuery<Params = void, Response = unknown, Mapped = Response>(
+  config: CreateJsonQueryConfig<Params, Response, Mapped>,
+): Query<Params, Response, RequestError, Mapped> {
   const method = config.request.method ?? 'GET';
   const effectFx = buildRequestEffect<Params, Response>(config.request, method, config.name);
 
-  return createQuery<Params, Response, RequestError, Response>({
+  return createQuery<Params, Response, RequestError, Mapped>({
     effect: effectFx,
     contract: config.response?.contract,
+    mapData: config.mapData,
+    validate: config.validate,
     concurrency: config.concurrency,
     retry: config.retry,
     cache: config.cache,
@@ -209,9 +215,13 @@ export function createJsonQuery<Params = void, Response = unknown>(
   });
 }
 
-export interface CreateJsonMutationConfig<Params, Response> {
+export interface CreateJsonMutationConfig<Params, Response, Mapped = Response> {
   request: JsonRequest<Params>;
   response?: { contract?: Contract<Response> };
+  /** Reshape the (validated) response before it lands in `$data` — same as `createMutation`'s. */
+  mapData?: (ctx: { result: Response; params: Params }) => Mapped;
+  /** Custom validation: return true/void = ok, false or string[] = invalid — same as `createMutation`'s. */
+  validate?: (ctx: { result: Response; params: Params }) => boolean | string[] | void;
   concurrency?: ConcurrencyStrategy | Store<ConcurrencyStrategy>;
   retry?: number | RetryConfig<RequestError>;
   name?: string;
@@ -227,15 +237,17 @@ export interface CreateJsonMutationConfig<Params, Response> {
  *   });
  *   invalidate({ on: createUser, refetch: usersQuery });
  */
-export function createJsonMutation<Params = void, Response = unknown>(
-  config: CreateJsonMutationConfig<Params, Response>,
-): Mutation<Params, Response, RequestError, Response> {
+export function createJsonMutation<Params = void, Response = unknown, Mapped = Response>(
+  config: CreateJsonMutationConfig<Params, Response, Mapped>,
+): Mutation<Params, Response, RequestError, Mapped> {
   const method = config.request.method ?? 'POST';
   const effectFx = buildRequestEffect<Params, Response>(config.request, method, config.name);
 
-  return createMutation<Params, Response, RequestError, Response>({
+  return createMutation<Params, Response, RequestError, Mapped>({
     effect: effectFx,
     contract: config.response?.contract,
+    mapData: config.mapData,
+    validate: config.validate,
     concurrency: config.concurrency,
     retry: config.retry,
     name: config.name,

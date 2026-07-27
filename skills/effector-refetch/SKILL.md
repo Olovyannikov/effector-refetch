@@ -130,6 +130,7 @@ const fetchUserFx = createRequestFx((id: number, { signal }) =>
 const userQuery = createJsonQuery({
   request: { url: (id: number) => `/api/users/${id}`, method: 'GET' },
   response: { contract: zodContract(UserSchema) }, // validation failure -> retryable ValidationError
+  mapData: ({ result }) => result.user, // inline mapData/validate — same semantics as createQuery's
 });
 ```
 

@@ -13,8 +13,10 @@ npx effector-refetch-codemod "src/**/*.ts" --dry   # preview only
 It rewrites `@farfetched/core` (and the `@farfetched/{zod,io-ts,runtypes}` adapters) →
 `effector-refetch`, turns `retry(q, …)` / `cache(q, …)` / `concurrency(q, { strategy, key })` /
 `timeout(q, { after })` into the inline config of `createQuery` / `createMutation` /
-`createJson*`, and drops the now-unused operator imports. Names with no equivalent
-(`declareParams`, `attachOperation`, …) and shapes that differ (`update(q, { by })`,
+`createJson*`, migrates the `createJsonQuery` shape (drops `params: declareParams<T>()`, hoists
+`response.mapData` / `response.validate` to the top level), and drops the now-unused operator
+imports. Names with no equivalent
+(still-referenced `attachOperation`, …) and shapes that differ (`update(q, { by })`,
 `keepFresh({ automatically })`, `Time` strings like `'5min'`) are **kept and annotated** with
 `// TODO(effector-refetch-codemod)` comments rather than silently broken. Operators on a query it
 can't resolve statically are left as-is — review the diff and run your formatter after. The

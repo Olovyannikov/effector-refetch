@@ -109,6 +109,17 @@ export const createUser = createJsonQuery<NewUser, User>({
 (или, для `url`, статическая строка). Abort-aware, нормализованный `RequestError`,
 опциональный контракт и все обычные опции запроса.
 
+`mapData` / `validate` тоже работают инлайном (семантика — как у `createQuery`: `mapData`
+преобразует провалидированный ответ перед `$data`, `validate` компонуется после контракта):
+
+```ts
+const userNameQuery = createJsonQuery<{ id: number }, { user: User }, string>({
+  request: { url: ({ id }) => `/api/users/${id}` },
+  mapData: ({ result }) => result.user.name,
+  validate: ({ result }) => result.user != null || ['пустой пользователь'],
+});
+```
+
 ### Sourced-поля (реактивные, fork-корректные)
 
 Любое поле запроса можно читать из `Store` — удобно для токена авторизации или base URL, которые

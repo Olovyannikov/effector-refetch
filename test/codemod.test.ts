@@ -116,14 +116,26 @@ cache(jq, { staleAfter: 1000 });
     expect(out).not.toMatch(/cache\(jq/);
   });
 
-  it('keeps names without an effector-refetch equivalent on @farfetched/core, annotated', () => {
+  it('keeps still-used names without an effector-refetch equivalent on @farfetched/core, annotated', () => {
     const out = run(`
 import { createQuery, declareParams, attachOperation } from '@farfetched/core';
 const q = createQuery({ effect: fx });
+const params = declareParams<number>();
+const attached = attachOperation(q);
 `);
     expect(out).toMatch(/import\s*{\s*createQuery\s*}\s*from 'effector-refetch'/);
     expect(out).toMatch(/import\s*{\s*declareParams,\s*attachOperation\s*}\s*from '@farfetched\/core'/);
     expect(out).toContain('TODO(effector-refetch-codemod): declareParams, attachOperation');
+  });
+
+  it('silently drops unknown names that are no longer referenced anywhere', () => {
+    const out = run(`
+import { createQuery, declareParams } from '@farfetched/core';
+const q = createQuery({ effect: fx });
+`);
+    expect(out).toMatch(/import\s*{\s*createQuery\s*}\s*from 'effector-refetch'/);
+    expect(out).not.toContain('declareParams');
+    expect(out).not.toContain('@farfetched/core');
   });
 
   it('rewrites contract adapter packages to the main entry (with the runtypes rename)', () => {
@@ -150,6 +162,49 @@ retry(q, { times: 3, otherwise: failFx });
     expect(out).toContain("retry 'otherwise' has no equivalent");
     // the incompatible retry call is kept, not half-migrated
     expect(out).toMatch(/retry\(q, \{ times: 3, otherwise: failFx \}\)/);
+  });
+
+  it('migrates the createJsonQuery shape: drops declareParams, hoists response.mapData/validate', () => {
+    const out = run(`
+import { createJsonQuery, declareParams } from '@farfetched/core';
+const q = createJsonQuery({
+  params: declareParams<{ id: number }>(),
+  request: { url: '/api/user', method: 'GET' },
+  response: {
+    contract: userContract,
+    mapData: ({ result }) => result.user,
+    validate: ({ result }) => result.ok,
+  },
+});
+`);
+    // params dropped, typing pointer left behind
+    expect(out).not.toContain('declareParams');
+    expect(out).toContain('createJsonQuery<{ id: number }, Response>');
+    // mapData/validate hoisted to the top level, contract stays in response
+    expect(out).toMatch(/mapData: \(\{ result \}\) => result\.user/);
+    expect(out).toMatch(/validate: \(\{ result \}\) => result\.ok/);
+    // contract stays as the only thing left inside response
+    expect(out).toMatch(/response: \{\s*contract: userContract\s*\}/);
+    // the now-unused declareParams import vanished entirely (no TODO for it)
+    expect(out).toMatch(/import\s*{\s*createJsonQuery\s*}\s*from 'effector-refetch'/);
+    expect(out).not.toContain('@farfetched/core');
+  });
+
+  it('flags sourced response.mapData and unknown response fields instead of hoisting', () => {
+    const out = run(`
+import { createJsonQuery } from '@farfetched/core';
+const q = createJsonQuery({
+  request: { url: '/x', method: 'GET' },
+  response: {
+    mapData: { source: $lang, fn: (lang, { result }) => result[lang] },
+    status: { expected: [200] },
+  },
+});
+`);
+    expect(out).toContain('response.mapData with { source } has no equivalent');
+    expect(out).toContain('response.status has no equivalent');
+    // the sourced mapData is left in place for hand-migration
+    expect(out).toMatch(/response:[\s\S]*mapData:[\s\S]*source: \$lang/);
   });
 
   it('rewrites the applyBarrier object form to positional and warns on Time strings', () => {

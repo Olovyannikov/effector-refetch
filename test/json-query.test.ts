@@ -84,6 +84,23 @@ describe('createJsonQuery', () => {
     expect(err.data).toEqual({ message: 'not found' });
   });
 
+  it('mapData reshapes the response before $data; validate rejects bad payloads', async () => {
+    stub(200, { user: { id: 1, name: 'ada' }, ok: true });
+    const q = createJsonQuery<void, { user: { id: number; name: string }; ok: boolean }, string>({
+      request: { url: 'https://api.test/me' },
+      mapData: ({ result }) => result.user.name,
+      validate: ({ result }) => result.ok || ['not ok'],
+    });
+    const scope = fork();
+    await allSettled(q.start, { scope });
+    expect(scope.getState(q.$data)).toBe('ada'); // Mapped type, not the raw response
+
+    stub(200, { user: { id: 1, name: 'ada' }, ok: false });
+    await allSettled(q.refresh, { scope });
+    expect(scope.getState(q.$status)).toBe('fail');
+    expect((scope.getState(q.$error) as ValidationError).validationErrors).toEqual(['not ok']);
+  });
+
   it('validates the response with a contract', async () => {
     stub(200, { id: 'bad' });
     const q = createJsonQuery<void, { id: number }>({
