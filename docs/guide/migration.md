@@ -10,10 +10,15 @@ npx effector-refetch-codemod "src/**/*.{ts,tsx}"
 npx effector-refetch-codemod "src/**/*.ts" --dry   # preview only
 ```
 
-It rewrites `@farfetched/core` → `effector-refetch`, turns `retry(q, …)` / `cache(q, …)` /
-`concurrency(q, { strategy })` into `createQuery({ retry, cache, concurrency })`, and drops the
-now-unused operator imports. Operators on a query it can't resolve statically are left as-is —
-review the diff and run your formatter after. The manual mapping below covers the rest.
+It rewrites `@farfetched/core` (and the `@farfetched/{zod,io-ts,runtypes}` adapters) →
+`effector-refetch`, turns `retry(q, …)` / `cache(q, …)` / `concurrency(q, { strategy, key })` /
+`timeout(q, { after })` into the inline config of `createQuery` / `createMutation` /
+`createJson*`, and drops the now-unused operator imports. Names with no equivalent
+(`declareParams`, `attachOperation`, …) and shapes that differ (`update(q, { by })`,
+`keepFresh({ automatically })`, `Time` strings like `'5min'`) are **kept and annotated** with
+`// TODO(effector-refetch-codemod)` comments rather than silently broken. Operators on a query it
+can't resolve statically are left as-is — review the diff and run your formatter after. The
+manual mapping below covers the rest.
 
 ## From farfetched
 
@@ -28,7 +33,7 @@ effect**, and inline options are available alongside operators.
 | `retry(query, { times, delay })`       | `retry(query, …)` **or** inline `createQuery({ retry })`                                          |
 | `cache(query, { ... })`                | `cache(query, …)` **or** inline `createQuery({ cache })`                                          |
 | `concurrency(query, { strategy })`     | `concurrency(query, …)` **or** inline `createQuery({ concurrency })`                              |
-| `timeout(query, ms)`                   | `timeout(query, ms)` **or** inline `createQuery({ timeout })`                                     |
+| `timeout(query, { after })`            | `timeout(query, ms)` **or** inline `createQuery({ timeout })`                                     |
 | `keepFresh(query, { triggers })`       | `keepFresh(query, { source, triggers })`                                                          |
 | `connectQuery({ source, fn, target })` | identical                                                                                         |
 | `createMutation`                       | `createMutation` (+ `mutate` alias)                                                               |
