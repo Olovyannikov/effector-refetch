@@ -21,12 +21,11 @@ Be aware of these before switching:
   `concurrency`, `retry.times`, `cache.staleAfter`, `refetchInterval`, `timeout`, `debounce` — plus
   the run-time `$queryDefaults` layer for per-fork overrides — and expects the rest to come from
   the effect's params (often via `sample`). Closer than it was, but still narrower.
-- **A couple of named validation adapters.** farfetched ships dedicated
-  `@farfetched/{runtypes,io-ts,superstruct,typed-contracts,zod}`. effector-refetch now matches
-  `runtypesContract`, `ioTsContract`, `zodContract`, plus `standardSchemaContract` (covers any
-  Standard-Schema lib — valibot, arktype, zod 4, …), `@withease/contracts` (works natively — same
-  `Contract` shape, no adapter), and `createContract`. The remaining named gaps are **superstruct**
-  and **typed-contracts** (both reachable via Standard Schema where supported).
+- ~~A couple of named validation adapters.~~ Closed: effector-refetch now matches every named
+  farfetched adapter — `zodContract`, `runtypesContract`, `ioTsContract`, `superstructContract`,
+  `typedContract` — plus `standardSchemaContract` (covers any Standard-Schema lib — valibot,
+  arktype, zod 4, …), `@withease/contracts` (works natively — same `Contract` shape, no adapter),
+  and `createContract`.
 
 ## Where effector-refetch is different (and often nicer)
 
@@ -77,33 +76,33 @@ Be aware of these before switching:
 
 ## Side by side
 
-|                      | farfetched                                                    | effector-refetch                                                                             |
-| -------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| unit of work         | internal event-based executor                                 | your real `Effect` — first-class                                                             |
-| API style            | operators                                                     | inline options **and** operators                                                             |
-| operators            | `retry`/`cache`/`concurrency`/`timeout`/`keepFresh`/`barrier` | same set — inline **and** standalone                                                         |
-| sourced config       | sourced **everything**                                        | HTTP fields (`url`/`query`/`body`/`headers`) + curated config + `source`/`mapParams`         |
-| validation           | runtypes / io-ts / superstruct / typed-contracts / zod        | runtypes / io-ts / zod / Standard Schema / `@withease/contracts` (native) / `createContract` |
-| declarative HTTP     | `createJsonQuery` + `createJsonMutation`                      | `createJsonQuery` + `createJsonMutation` (over `createJsonRequestFx`)                        |
-| pagination           | —                                                             | `createInfiniteQuery` (bidirectional)                                                        |
-| cancellation         | abort + discard                                               | real `AbortSignal` via `createRequestFx`                                                     |
-| barrier / mutex      | `createBarrier` + `applyBarrier` operator                     | `createBarrier` + `applyBarrier` operator                                                    |
-| offline mode         | build it on a barrier                                         | built-in `createNetworkBarrier`                                                              |
-| `@@trigger` protocol | implements + consumes (`keepFresh` triggers)                  | implements (every query/mutation) + consumes (`keepFresh` triggers)                          |
-| router               | `@farfetched/atomic-router`                                   | `attachToRoute` (structural — no router import)                                              |
-| devtools             | `@farfetched/dev-tools`                                       | visual panels (React/Vue/Solid) + introspection stream                                       |
-| bindings             | `@farfetched/solid` + `useUnit`                               | react / vue / solid + `useQuery` + `useSuspenseQuery`                                        |
-| SSR                  | `fork` / `allSettled` (in-memory cache is global)             | `fork` / `allSettled` + scope-isolated cache (`$queryCache`)                                 |
-| concurrency          | TAKE_LATEST / FIRST / EVERY                                   | + lanes (`key`) + `QUEUE` (serialized)                                                       |
-| abort reasons        | —                                                             | typed on `aborted` + `signal.reason`                                                         |
-| imperative await     | —                                                             | `startAsync` / `mutateAsync` (real Effects)                                                  |
-| runtime defaults     | —                                                             | `$queryDefaults` (per-fork)                                                                  |
-| debounce / fallback  | build by hand                                                 | inline options + operators                                                                   |
-| optimistic updates   | `update`                                                      | `update` + `optimisticUpdate` (parallel layers, re-basing)                                   |
-| tag invalidation     | —                                                             | `invalidateTag` (cross-module)                                                               |
-| state shape          | separate stores                                               | granular stores **and** `$state` discriminated union                                         |
-| interop / migration  | —                                                             | `effector-refetch/tanstack`, `effector-refetch/apollo`                                       |
-| maturity / ecosystem | **larger, battle-tested**                                     | young, actively developed                                                                    |
+|                      | farfetched                                                    | effector-refetch                                                                     |
+| -------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| unit of work         | internal event-based executor                                 | your real `Effect` — first-class                                                     |
+| API style            | operators                                                     | inline options **and** operators                                                     |
+| operators            | `retry`/`cache`/`concurrency`/`timeout`/`keepFresh`/`barrier` | same set — inline **and** standalone                                                 |
+| sourced config       | sourced **everything**                                        | HTTP fields (`url`/`query`/`body`/`headers`) + curated config + `source`/`mapParams` |
+| validation           | runtypes / io-ts / superstruct / typed-contracts / zod        | same five + Standard Schema + `@withease/contracts` (native) + `createContract`      |
+| declarative HTTP     | `createJsonQuery` + `createJsonMutation`                      | `createJsonQuery` + `createJsonMutation` (over `createJsonRequestFx`)                |
+| pagination           | —                                                             | `createInfiniteQuery` (bidirectional)                                                |
+| cancellation         | abort + discard                                               | real `AbortSignal` via `createRequestFx`                                             |
+| barrier / mutex      | `createBarrier` + `applyBarrier` operator                     | `createBarrier` + `applyBarrier` operator                                            |
+| offline mode         | build it on a barrier                                         | built-in `createNetworkBarrier`                                                      |
+| `@@trigger` protocol | implements + consumes (`keepFresh` triggers)                  | implements (every query/mutation) + consumes (`keepFresh` triggers)                  |
+| router               | `@farfetched/atomic-router`                                   | `attachToRoute` (structural — no router import)                                      |
+| devtools             | `@farfetched/dev-tools`                                       | visual panels (React/Vue/Solid) + introspection stream                               |
+| bindings             | `@farfetched/solid` + `useUnit`                               | react / vue / solid + `useQuery` + `useSuspenseQuery`                                |
+| SSR                  | `fork` / `allSettled` (in-memory cache is global)             | `fork` / `allSettled` + scope-isolated cache (`$queryCache`)                         |
+| concurrency          | TAKE_LATEST / FIRST / EVERY                                   | + lanes (`key`) + `QUEUE` (serialized)                                               |
+| abort reasons        | —                                                             | typed on `aborted` + `signal.reason`                                                 |
+| imperative await     | —                                                             | `startAsync` / `mutateAsync` (real Effects)                                          |
+| runtime defaults     | —                                                             | `$queryDefaults` (per-fork)                                                          |
+| debounce / fallback  | build by hand                                                 | inline options + operators                                                           |
+| optimistic updates   | `update`                                                      | `update` + `optimisticUpdate` (parallel layers, re-basing)                           |
+| tag invalidation     | —                                                             | `invalidateTag` (cross-module)                                                       |
+| state shape          | separate stores                                               | granular stores **and** `$state` discriminated union                                 |
+| interop / migration  | —                                                             | `effector-refetch/tanstack`, `effector-refetch/apollo`                               |
+| maturity / ecosystem | **larger, battle-tested**                                     | young, actively developed                                                            |
 
 ## SSR side by side
 
@@ -126,8 +125,8 @@ inMemoryCache()]] })` isolates every query's cache in that scope. Entries are na
 
 ## Which should you use?
 
-- **Use farfetched** if you want the most mature option today, lean heavily on sourced-everything
-  config, or need the superstruct / typed-contracts validation adapters specifically.
+- **Use farfetched** if you want the most mature option today or lean heavily on
+  sourced-everything config.
 - **Use effector-refetch** if you prefer wrapping your own effects, want inline config, real
   cancellation, built-in pagination, declarative reads **and** writes, the barrier/offline
   primitives, structural router integration, cross-framework devtools, or a small core on an

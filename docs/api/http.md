@@ -225,11 +225,12 @@ createQuery({ effect: getUserFx, contract: obj({ id: num, name: str, tags: arr(s
 :::
 
 ::: tip Any other library
-Anything is one `createContract` away — superstruct, typed-contracts, a hand-written guard:
+`superstructContract(UserStruct)` and `typedContract(isUser)` are named adapters too (all five
+farfetched adapters are matched). Anything else is one `createContract` away — e.g. a
+hand-written guard:
 
 ```ts
-import { is } from 'superstruct';
-createContract({ isData: (raw) => is(raw, UserStruct) });
+createContract({ isData: (raw) => isUserLike(raw) });
 ```
 
 `standardSchemaContract` already covers every [Standard Schema](https://standardschema.dev) library

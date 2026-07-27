@@ -1,6 +1,6 @@
 {
   "name": "effector-refetch-codemod",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Codemod: migrate farfetched (@farfetched/core and contract adapters) usage to effector-refetch — rewrites imports safely, folds retry/cache/concurrency/timeout operators into the inline query/mutation config, and annotates incompatible shapes with TODO comments.",
   "keywords": [
     "effector",

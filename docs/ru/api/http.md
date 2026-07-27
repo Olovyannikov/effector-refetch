@@ -225,11 +225,12 @@ createQuery({ effect: getUserFx, contract: obj({ id: num, name: str, tags: arr(s
 :::
 
 ::: tip Любая другая библиотека
-Что угодно — в одну строку через `createContract` (superstruct, typed-contracts, ручной guard):
+`superstructContract(UserStruct)` и `typedContract(isUser)` — тоже именованные адаптеры (все
+пять адаптеров farfetched покрыты). Остальное — в одну строку через `createContract`, например
+ручной guard:
 
 ```ts
-import { is } from 'superstruct';
-createContract({ isData: (raw) => is(raw, UserStruct) });
+createContract({ isData: (raw) => isUserLike(raw) });
 ```
 
 `standardSchemaContract` уже покрывает любую [Standard Schema](https://standardschema.dev) либу

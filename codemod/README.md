@@ -14,8 +14,9 @@ npx effector-refetch-codemod "src/**/*.ts" --dry   # preview, write nothing
   there**. Names with no equivalent (`declareParams`, `attachOperation`, …) stay on the original
   import with a `// TODO(effector-refetch-codemod)` comment instead of becoming broken imports.
 - Rewrites the contract adapter packages: `@farfetched/zod` / `@farfetched/io-ts` /
-  `@farfetched/runtypes` → main-entry `zodContract` / `ioTsContract` / `runtypesContract`
-  (aliased, so call sites don't change).
+  `@farfetched/runtypes` / `@farfetched/superstruct` / `@farfetched/typed-contracts` →
+  main-entry `zodContract` / `ioTsContract` / `runtypesContract` / `superstructContract` /
+  `typedContract` (aliased where names differ, so call sites don't change).
 - Folds the standalone operators — `retry` / `cache` / `concurrency` / `timeout` (translating
   farfetched's `{ after }` shape) — into the inline config of `createQuery`, `createMutation`,
   `createJsonQuery` and `createJsonMutation`, and removes the now-unused operator imports.
