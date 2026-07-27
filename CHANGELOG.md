@@ -1,5 +1,180 @@
 # effector-refetch
 
+## 0.16.0
+
+### Minor Changes
+
+- b3a1eac: Two cache options from the reatom comparison:
+  - `cache: { fillOnAbort: true }` — a superseded in-flight run is allowed to
+    finish so its (almost-ready) response still lands in the cache; only its
+    connection to `$data`/status is severed. Explicit `cancel`/`reset` aborts
+    for real. Validation still gates the write.
+  - `cache: { swr: { silent: true } }` — a failed background SWR revalidation
+    keeps serving the stale entry silently: `$error`/`$status` stay untouched
+    ("stale is better than an error banner"), while `finished.fail` still fires
+    so observers and `startAsync` learn the truth.
+
+- 0cd16b6: Inline `debounce` and `fallback` options (also standalone operators).
+  - `debounce: 300` waits before executing a run; a newer run in the same lane
+    started during the wait supersedes it BEFORE it hits the network — a true
+    debounce for search-as-you-type under TAKE_LATEST. `Store<number>` is
+    reactive and fork-correct; `0` disables.
+  - `fallback: value | ({ error, params }) => value` recovers a FINAL failure
+    (after retries) into data: `$data` gets the value, `$status` becomes 'done',
+    `finished.done` fires. The value is not written to the cache, and
+    aborts/skips are exempt.
+
+- e669654: Interop adapters for incremental migration: `effector-refetch/tanstack` and
+  `effector-refetch/apollo`.
+  - `withTanstackCache(getClient, handler, { queryKey, staleTime })` routes a
+    handler through a TanStack `QueryClient.fetchQuery`, so its cache, dedupe and
+    devtools apply while the query keeps the effector-refetch surface.
+  - `apolloHandler(getClient, { document, variables, fetchPolicy })` builds a
+    handler backed by `client.query`, gaining Apollo's normalized cache; the
+    run's AbortSignal travels through `context.fetchOptions.signal`.
+
+  Both are dependency-free (structural client types), read the client lazily for
+  per-fork wiring, and compose with `createRequestFx` so cancellation reaches the
+  wire.
+
+- aaf9224: Concurrency lanes and typed abort reasons.
+  - `concurrency` accepts an object form `{ strategy?, key?: (params) => string }`:
+    runs whose params map to the same key compete with each other — TAKE_LATEST
+    supersede and TAKE_FIRST busy-drop apply within a lane, different lanes are
+    independent (refreshing one table row no longer cancels its neighbours).
+    `cancel`/`reset` still affect every lane. `$data` stays single per query —
+    lanes partition cancellation, not data. The standalone `concurrency()`
+    operator takes the same `key`.
+  - The `aborted` event payload now carries a typed `reason`:
+    `'cancelled' | 'superseded' | 'take-first-busy' | 'disabled'` (new
+    `AbortReason` export), so subscribers can tell an explicit cancel from a
+    supersede without guessing.
+
+- fa331f1: `$queryDefaults` — run-time, per-scope query defaults.
+
+  A plain store read at dispatch time, so tests and SSR override behavior without
+  rebuilding queries: `fork({ values: [[$queryDefaults, { timeout: 5_000, retry: 2 }]] })`,
+  or patch the running app with `setQueryDefaults({ retry: 1 })` (merge semantics).
+
+  Supported keys: `concurrency`, `retry`, `staleAfter`, `timeout`. Precedence, highest
+  first: the query's own config (inline / Store / operators / factory), then
+  `$queryDefaults`, then built-ins. An explicit value (e.g. `timeout: 0`) always opts
+  out of the store. Mutations keep their pinned `TAKE_EVERY` default.
+
+- 3b64890: `QUEUE` concurrency strategy — serialized runs.
+
+  `concurrency: 'QUEUE'` executes runs strictly one after another: the next
+  starts only when the previous settles, failures don't break the chain, and
+  settles arrive in start order. Combined with a lane `key`, serialization is
+  per lane. `cancel`/`reset` flush the waiting runs — they abort with reason
+  `'cancelled'` (so `startAsync` rejects instead of hanging). The classic use
+  case: mutations whose writes must not interleave —
+  `createMutation({ effect: saveFx, concurrency: 'QUEUE' })`.
+
+- dc5b095: `attachToRoute` now works with @effector/router and re-starts on param changes.
+  - The route shape is generalized: any object with `opened` / `updated` / `closed`
+    fits — both atomic-router's `RouteInstance` and @effector/router's `Route`
+    satisfy it structurally, payload extras (`query`, `replace`) ride into
+    `mapParams` untouched.
+  - New: `restartOnUpdate` (default `true`) — when the open route receives new
+    params (`/users/1` -> `/users/2`), the query re-starts. Previously param
+    changes were silently ignored; set `restartOnUpdate: false` for the old
+    behavior.
+  - @effector/router's "opened fires on every open() call" semantics are handled:
+    only a closed -> open transition starts via `opened`, param changes go via
+    `updated` — no double requests.
+
+- c6c520c: `startAsync` / `mutateAsync` — imperative promise-returning start, plus a
+  `finished.fail` retry fix.
+  - `query.startAsync` is a real `Effect<Params, Data>`: `await
+userQuery.startAsync(1)` resolves with the run's mapped data and rejects on
+    failure or discard (the `AbortReason` rides in the error). `useUnit(query.startAsync)`
+    gives a scope-bound promise-returning function for submit handlers;
+    `allSettled(query.startAsync, { scope, params })` returns the data in tests.
+    Mutations expose the `mutateAsync` alias. Scope-correct by construction:
+    calls register unique tokens in a per-scope store and settles are matched in
+    the graph.
+  - Fixed: with retries, `finished.fail` double-fired on the second-to-last
+    attempt with the intermediate error — the retry/final/stale decision is now
+    computed atomically against one snapshot.
+
+- 50f014e: `$state` — the whole query state as one discriminated union (reatom-inspired).
+  Matching on `status` narrows the other fields: `'done'` guarantees non-null
+  `data`, `'fail'` guarantees `error`; the loading flags ride along in every
+  variant. Available on the query and through `@@unitShape` (`useUnit(query).state`).
+
+### Patch Changes
+
+- 9f3b296: The abort reason now rides on the `AbortSignal` itself (reatom-inspired):
+  handlers — and the errors their `fetch` throws — see `signal.reason` as an
+  `AbortError` whose message is the reason: `'cancelled'` (cancel/reset),
+  `'superseded'` (TAKE_LATEST), or `'timeout'` (the per-attempt deadline).
+  `error.name` stays `'AbortError'`, so fetch/undici abort handling is
+  unaffected — you just finally know WHY.
+- a6f489e: Audit follow-ups (hardening + docs):
+  - infinite query: `setData` patches rederive the cursors and trim `pageParams`
+    (no more pages↔params desync); a failed `refetchAll` now reaches `$error` /
+    `$status` (the window stays intact).
+  - barrier: a shared `perform` effect settling from an unrelated call no longer
+    unlocks a barrier that never started it.
+  - React devtools panel attaches its logger scope-aware (`useProvidedScope`);
+    Vue/Solid limitation documented. `refetchOnMount: 'always'` no longer
+    double-fires under StrictMode.
+  - web-storage cache evicts corrupt (unparseable) entries on read; factory group
+    invalidation survives a throwing predicate.
+  - docs: browser triggers' JSDoc corrected (`allSettled`, not `scopeBind`);
+    polling-hangs-`allSettled` SSR warning in the auto-refetch recipe; the
+    AbortSignal side-channel claim softened to synchronous composition;
+    `keepFresh` external-trigger scope note; `attachToRoute` hydration note.
+
+- 5fa4bf1: Throwing user callbacks no longer kill the propagation (they ran in pure graph
+  positions, where a throw could strand `$status` at `pending`):
+  - `mapParams` / `mapData` throws fail the run — `$status: 'fail'`,
+    `finished.fail`, `startAsync` rejects;
+  - `mapError` throws fall back to the raw error; `fallback` throws demote to the
+    plain final failure with the original request error;
+  - `validate` / contract throws become retryable validation failures;
+  - a throwing lane `key` degrades to the single lane; throwing `connectQuery` /
+    `invalidate` predicates count as `false` and don't disturb other subscribers;
+  - `getNextPageParam` / `getPreviousPageParam` throws mean "no page in that
+    direction" instead of a dead settle.
+
+  Bonus: `mapData` / `mapError` now run ONCE per settle, so `$data` and
+  `finished.done` carry the same object identity (they used to be two separate
+  `mapData` calls).
+
+- 2c63ca5: `cancel` now restores the last SETTLED status instead of guessing from
+  `data != null`: cancelling a refetch that followed a failure (with stale data
+  still on screen) stays `'fail'` — it used to flip to `'done'` and hide the
+  failure. First-run cancels still settle to `'initial'`, post-success cancels
+  to `'done'`.
+- 37a5d89: `optimisticUpdate` no longer discards a real fetch that settles while
+  optimistic layers are in flight: the layer queue re-bases onto the fresh data
+  (pending layers re-applied on top), so both the settle fold and a rollback
+  land on the server data instead of a stale snapshot. Also, throwing
+  `update`/`commit`/`fn` callbacks in `update()`/`optimisticUpdate()` now skip
+  the failing step instead of killing the propagation.
+- 483b702: Retry budgets are now per-run, not per-query. The attempts counter rides in
+  the run payload (like `runId`), so concurrent runs — lanes, TAKE_EVERY (the
+  mutation default) — never share or reset each other's retry counts, and
+  `delay(attempt)` receives each run's own attempt number. The debounce wait and
+  the retry pause also got separate effects, so a debounce sleep completing no
+  longer clears another run's retrying flag.
+- 91381f0: `useSuspenseQuery` no longer hangs in the Suspense fallback when a suspended
+  query is cancelled or reset with no data. The settle watcher now also treats
+  `aborted`, `cancel`, and `reset` as settles (a cancelled NON-abortable effect's
+  promise may never settle, so waiting for `finished.finally`/`aborted` alone was
+  not enough); the retry render auto-restarts an `initial` query.
+- c0e0f83: Scope-isolated cancellation and dedupe. In-flight `AbortController`s and dedupe
+  keys used to live in a per-query closure shared by every scope, so under
+  parallel `fork`s (SSR) one scope's `cancel` / TAKE_LATEST supersede could abort
+  another scope's in-flight request, and `dedupe` could coalesce requests across
+  scopes. The run registry now lives in a store: each scope lazily creates its
+  own container, so cancellation and dedupe never cross scope boundaries.
+- aaf9224: `createInfiniteQuery` with void params no longer throws "undefined is used to
+  skip updates" on `start` — the `$params` store normalizes `undefined` to `null`,
+  same as regular queries.
+
 ## 0.15.0
 
 ### Minor Changes
