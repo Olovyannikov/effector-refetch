@@ -62,6 +62,21 @@ describe('type-level: createQuery', () => {
     retry(withInitial, { times: 1 });
     cache(withInitial);
 
+    // a bare `initialData: null` on a nullable-result effect must NOT collapse the
+    // store type to `null` (a `!data` guard would then narrow $data's value to `never`);
+    // without mapData the initial value types against Result
+    const nullableFx = createEffect(async (): Promise<{ id: number } | null> => ({ id: 1 }));
+    const nullableInitial = createQuery({ effect: nullableFx, initialData: null });
+    expectTypeOf(nullableInitial.$data).toEqualTypeOf<Store<{ id: number } | null>>();
+
+    // a cast initial value on a nullable result keeps Result too (no narrowing to the cast)
+    const castInitial = createQuery({ effect: nullableFx, initialData: { id: 0 } });
+    expectTypeOf(castInitial.$data).toEqualTypeOf<Store<{ id: number } | null>>();
+
+    // wrong initial value type is rejected in the mapData combination
+    // @ts-expect-error — number is not assignable to the mapped string
+    createQuery({ effect: fetchUserFx, mapData: ({ result }) => result.name, initialData: 42 });
+
     expect(true).toBe(true);
   });
 

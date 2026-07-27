@@ -4,7 +4,11 @@ import { wireTagInvalidation } from './invalidate';
 import { cache, concurrency, debounce, fallback, retry } from './operators';
 import type {
   CreateQueryConfig,
+  CreateQueryConfigWithInitial,
+  CreateQueryConfigWithInitialMapped,
   CreateQueryHandlerConfig,
+  CreateQueryHandlerConfigWithInitial,
+  CreateQueryHandlerConfigWithInitialMapped,
   CreateQueryMappedConfig,
   Query,
   QuerySource,
@@ -24,24 +28,22 @@ import type {
  */
 // `initialData` overloads come first: with initial data `$data` can never be null,
 // so the query is typed `Query<..., Mapped, Mapped>` (farfetched-compatible).
-export function createQuery<
-  Params,
-  EffectParams,
-  Result,
-  Error = unknown,
-  Mapped = Result,
-  Src extends QuerySource | undefined = undefined,
->(
-  config: CreateQueryMappedConfig<Params, EffectParams, Src, Result, Error, Mapped> & {
-    initialData: Mapped;
-  },
-): Query<Params, Result, Error, Mapped, Mapped>;
+// Dedicated interfaces (not `& { initialData }` intersections) keep the
+// context-sensitive `mapData` inference intact, and the mapData/no-mapData split
+// gives `Mapped` the right inference candidates: a bare `initialData: null` types
+// against `Result` instead of collapsing the store type to `null`.
 export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
-  config: CreateQueryConfig<Params, Result, Error, Mapped> & { initialData: Mapped },
+  config: CreateQueryConfigWithInitialMapped<Params, Result, Error, Mapped>,
 ): Query<Params, Result, Error, Mapped, Mapped>;
+export function createQuery<Params, Result, Error = unknown>(
+  config: CreateQueryConfigWithInitial<Params, Result, Error>,
+): Query<Params, Result, Error, Result, Result>;
 export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
-  config: CreateQueryHandlerConfig<Params, Result, Error, Mapped> & { initialData: Mapped },
+  config: CreateQueryHandlerConfigWithInitialMapped<Params, Result, Error, Mapped>,
 ): Query<Params, Result, Error, Mapped, Mapped>;
+export function createQuery<Params, Result, Error = unknown>(
+  config: CreateQueryHandlerConfigWithInitial<Params, Result, Error>,
+): Query<Params, Result, Error, Result, Result>;
 export function createQuery<
   Params,
   EffectParams,
