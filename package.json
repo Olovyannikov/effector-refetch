@@ -171,7 +171,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "vite build && node scripts/dual-dts.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node ./node_modules/typescript7/bin/tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -188,7 +188,8 @@
     "docs:gen": "node scripts/gen-api.mjs && node scripts/gen-llms.mjs",
     "docs:dev": "pnpm docs:gen && vitepress dev docs",
     "docs:build": "pnpm docs:gen && vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "typecheck:6": "tsc --noEmit"
   },
   "peerDependencies": {
     "@hey-api/openapi-ts": ">=0.82.0 <0.83.0",
@@ -264,6 +265,7 @@
     "twoslash": "^0.3.8",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.1",
+    "typescript7": "npm:typescript@^7.0.2",
     "vite": "^5.4.11",
     "vite-plugin-dts": "^4.5.4",
     "vitepress": "^1.6.4",
