@@ -19,5 +19,8 @@
       "effector-refetch/openapi": ["./src/openapi.ts"]
     }
   },
-  "include": ["src", "test", "examples"]
+  "include": ["src", "test", "examples"],
+  // The Next.js example is a standalone app with its own tsconfig/deps (next types,
+  // JSX transform) — typecheck it inside examples/nextjs, not from the root.
+  "exclude": ["examples/nextjs"]
 }
