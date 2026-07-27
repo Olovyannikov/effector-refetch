@@ -13,7 +13,7 @@ export interface IntrospectionContext<Params, Error> {
   // Done/Error generics are irrelevant here (used only as a clock for its params);
   // `any` avoids effector's invariant `use` check on the Effect's result type.
   runFx: Effect<
-    { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number },
+    { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number; swr: boolean },
     any,
     Error
   >;

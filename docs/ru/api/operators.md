@@ -94,11 +94,20 @@ retry(userQuery, {
 
 ## `cache`
 
-`cache(query)` (in-memory) или конфиг (adapter / `staleAfter` / `key` / `swr` / `dedupe` / `purge`).
+`cache(query)` (in-memory) или конфиг (adapter / `staleAfter` / `key` / `swr` / `dedupe` /
+`purge` / `fillOnAbort`).
 
 ```ts
 cache(productsQuery, { staleAfter: 30_000, swr: true, purge: loggedOut });
+cache(feedQuery, { swr: { silent: true }, fillOnAbort: true });
 ```
+
+- **`swr: { silent: true }`** — упавшая фоновая ревалидация продолжает тихо отдавать
+  stale-запись: `$error`/`$status` не тронуты, `finished.fail` для наблюдателей всё же
+  срабатывает (и `startAsync` реджектится).
+- **`fillOnAbort: true`** — ВЫТЕСНЕННОМУ рану дают долететь, чтобы его ответ всё-таки
+  лёг в кэш; рвётся только его связь с `$data`/статусом. Явный `cancel`/`reset`
+  абортит по-настоящему.
 
 ## `timeout`
 
