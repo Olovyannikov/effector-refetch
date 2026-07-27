@@ -22,6 +22,26 @@ import type {
  * `attach({ source, mapParams })` idiom that also works for abortable
  * (`createRequestFx`) effects. The cache key is computed from the mapped params.
  */
+// `initialData` overloads come first: with initial data `$data` can never be null,
+// so the query is typed `Query<..., Mapped, Mapped>` (farfetched-compatible).
+export function createQuery<
+  Params,
+  EffectParams,
+  Result,
+  Error = unknown,
+  Mapped = Result,
+  Src extends QuerySource | undefined = undefined,
+>(
+  config: CreateQueryMappedConfig<Params, EffectParams, Src, Result, Error, Mapped> & {
+    initialData: Mapped;
+  },
+): Query<Params, Result, Error, Mapped, Mapped>;
+export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
+  config: CreateQueryConfig<Params, Result, Error, Mapped> & { initialData: Mapped },
+): Query<Params, Result, Error, Mapped, Mapped>;
+export function createQuery<Params, Result, Error = unknown, Mapped = Result>(
+  config: CreateQueryHandlerConfig<Params, Result, Error, Mapped> & { initialData: Mapped },
+): Query<Params, Result, Error, Mapped, Mapped>;
 export function createQuery<
   Params,
   EffectParams,

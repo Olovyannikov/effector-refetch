@@ -195,6 +195,13 @@ export function createJsonRequestFx<Params = void, Response = unknown>(
  *     response: { contract: zodContract(UserSchema) },
  *   });
  */
+// with `initialData` the `$data` store can never be null (farfetched-compatible typing)
+export function createJsonQuery<Params = void, Response = unknown, Mapped = Response>(
+  config: CreateJsonQueryConfig<Params, Response, Mapped> & { initialData: Mapped },
+): Query<Params, Response, RequestError, Mapped, Mapped>;
+export function createJsonQuery<Params = void, Response = unknown, Mapped = Response>(
+  config: CreateJsonQueryConfig<Params, Response, Mapped>,
+): Query<Params, Response, RequestError, Mapped>;
 export function createJsonQuery<Params = void, Response = unknown, Mapped = Response>(
   config: CreateJsonQueryConfig<Params, Response, Mapped>,
 ): Query<Params, Response, RequestError, Mapped> {
