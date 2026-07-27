@@ -1,13 +1,23 @@
 name: Release codemod
 
 # Publishes the standalone `effector-refetch-codemod` package (in codemod/) to npm.
-# Manual trigger: bump codemod/package.json "version" first, then run this workflow.
+# Fires automatically on a push to main that touches codemod/ (publishes only when
+# codemod/package.json "version" is not on the registry yet — idempotent), and
+# stays manually triggerable via workflow_dispatch.
 # Uses the same NPM_TOKEN secret (classic Automation token recommended).
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'codemod/**'
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-codemod
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -21,8 +31,21 @@ jobs:
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
+      # `npm publish` is not idempotent (403 on republish), so skip when the
+      # current version is already on the registry — mirrors scripts/release.mjs.
+      - id: check
+        run: |
+          LOCAL=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view effector-refetch-codemod version 2>/dev/null || echo "none")
+          echo "local: $LOCAL, published: $PUBLISHED"
+          if [ "$LOCAL" = "$PUBLISHED" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
       # No build step (plain .mjs) and only `files` are packed, so a bare publish
       # is enough (publishConfig.access=public is set in codemod/package.json).
-      - run: npm publish
+      - if: steps.check.outputs.publish == 'true'
+        run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
