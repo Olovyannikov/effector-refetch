@@ -32,5 +32,11 @@
     "name": "apollo interop",
     "path": "dist/apollo.mjs",
     "limit": "0.5 kB"
+  },
+  {
+    "name": "openapi codegen plugin",
+    "path": "dist/openapi.mjs",
+    "limit": "1 kB",
+    "ignore": ["@hey-api/openapi-ts"]
   }
 ]

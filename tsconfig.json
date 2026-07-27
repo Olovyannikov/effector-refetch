@@ -11,7 +11,13 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "noEmit": true
+    "noEmit": true,
+    // Generated example code imports the package by name (as user code would);
+    // resolve it to the sources so typecheck doesn't require a built dist.
+    "paths": {
+      "effector-refetch": ["./src/index.ts"],
+      "effector-refetch/openapi": ["./src/openapi.ts"]
+    }
   },
   "include": ["src", "test", "examples"]
 }

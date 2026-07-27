@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
 import react from '@vitejs/plugin-react';
@@ -9,7 +10,14 @@ export default defineConfig({
   plugins: [react(), vue()],
   // Resolve solid-js to its browser/client build so `solid-js/web`'s `render`
   // works in the happy-dom tests (otherwise the server build throws).
-  resolve: { conditions: ['browser', 'development'] },
+  resolve: {
+    conditions: ['browser', 'development'],
+    // The openapi-plugin test imports GENERATED code whose `import ... from
+    // 'effector-refetch'` must resolve to this repo's sources, not dist.
+    alias: [
+      { find: /^effector-refetch$/, replacement: fileURLToPath(new URL('./src/index.ts', import.meta.url)) },
+    ],
+  },
   test: {
     // DOM-needing files opt in per-file via `// @vitest-environment happy-dom`;
     // everything else runs in the default node environment.
