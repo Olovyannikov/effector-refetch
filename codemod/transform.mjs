@@ -148,16 +148,99 @@ export function transformSourceFile(sf) {
     changed = true;
   }
 
+  // 1.5) farfetched createJsonQuery / createJsonMutation structural migration:
+  //      drop `params: declareParams<T>()`, hoist `response.mapData` / `response.validate`
+  //      to the top level (supported inline since 0.17), flag everything else in `response`.
+  //      Runs before the import split so a now-unused `declareParams` import can vanish.
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (call.wasForgotten()) continue;
+    const callee = call.getExpression().getText();
+    if (callee !== 'createJsonQuery' && callee !== 'createJsonMutation') continue;
+    const cfg = call.getArguments()[0];
+    if (!cfg || cfg.getKind() !== SyntaxKind.ObjectLiteralExpression) continue;
+    const holder =
+      call.getFirstAncestorByKind(SyntaxKind.VariableStatement) ??
+      call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement);
+    const notes = [];
+
+    const paramsProp = cfg.getProperty('params');
+    const paramsInit = paramsProp?.getInitializer?.();
+    if (
+      paramsInit?.getKind() === SyntaxKind.CallExpression &&
+      paramsInit.getExpression().getText() === 'declareParams'
+    ) {
+      const typeArg = paramsInit.getTypeArguments()[0]?.getText() ?? 'Params';
+      notes.push(`params typing moved to generics — use ${callee}<${typeArg}, Response>({ … })`);
+      paramsProp.remove();
+      changed = true;
+    }
+
+    const respProp = cfg.getProperty('response');
+    const resp = respProp?.getInitializer?.();
+    if (resp && resp.getKind() === SyntaxKind.ObjectLiteralExpression) {
+      for (const key of ['mapData', 'validate']) {
+        const prop = resp.getProperty(key);
+        const init = prop?.getInitializer?.();
+        if (!init) continue;
+        if (init.getKind() === SyntaxKind.ObjectLiteralExpression) {
+          // farfetched's sourced form `{ source, fn }` — combine the store by hand
+          notes.push(`response.${key} with { source } has no equivalent — read the store in the ${key} fn`);
+          continue;
+        }
+        if (!cfg.getProperty(key)) cfg.addPropertyAssignment({ name: key, initializer: init.getText() });
+        prop.remove();
+        changed = true;
+      }
+      const leftover = resp
+        .getProperties()
+        .map((p) => p.getName?.())
+        .filter((n) => n && n !== 'contract' && n !== 'mapData' && n !== 'validate');
+      if (leftover.length > 0)
+        notes.push(`response.${leftover.join(' / response.')} has no equivalent — migrate by hand`);
+      if (resp.getProperties().length === 0) {
+        respProp.remove();
+        changed = true;
+      }
+    }
+
+    if (notes.length > 0 && holder) {
+      const fresh = notes.filter((m) => !holder.getFullText().includes(m));
+      if (fresh.length > 0) {
+        // one replaceWithText per statement — repeated annotate() would touch a forgotten node
+        holder.replaceWithText(`${fresh.map((m) => `${TODO} ${m}`).join('\n')}\n${holder.getText()}`);
+        changed = true;
+      }
+    }
+  }
+
   // 2) @farfetched/core -> effector-refetch, but only for names that exist there.
-  //    Unknown names (declareParams, attachOperation, …) stay behind, annotated.
+  //    Unknown names (declareParams, attachOperation, …) stay behind, annotated;
+  //    unknown names with no remaining references (e.g. a dropped `declareParams`)
+  //    are removed outright.
   for (const imp of sf.getImportDeclarations()) {
     if (imp.getModuleSpecifierValue() !== FARFETCHED) continue;
     const named = imp.getNamedImports();
-    const unknown = named.filter((spec) => !KNOWN_EXPORTS.has(spec.getName()));
-    if (unknown.length === 0 || named.length === 0) {
+    for (const spec of named.filter((s) => !KNOWN_EXPORTS.has(s.getName()))) {
+      const local = spec.getAliasNode()?.getText() ?? spec.getName();
+      const uses = sf
+        .getDescendantsOfKind(SyntaxKind.Identifier)
+        .filter((id) => id.getText() === local && !Node.isImportSpecifier(id.getParent())).length;
+      if (uses === 0) {
+        spec.remove();
+        changed = true;
+      }
+    }
+    const remaining = imp.getNamedImports();
+    if (remaining.length === 0 && named.length > 0 && !imp.getDefaultImport() && !imp.getNamespaceImport()) {
+      imp.remove(); // every named import was unknown and unreferenced
+      changed = true;
+      continue;
+    }
+    const unknown = remaining.filter((spec) => !KNOWN_EXPORTS.has(spec.getName()));
+    if (unknown.length === 0 || remaining.length === 0) {
       imp.setModuleSpecifier(TARGET);
     } else {
-      const movable = named.filter((spec) => KNOWN_EXPORTS.has(spec.getName()));
+      const movable = remaining.filter((spec) => KNOWN_EXPORTS.has(spec.getName()));
       if (movable.length > 0) {
         sf.insertImportDeclaration(imp.getChildIndex(), {
           moduleSpecifier: TARGET,

@@ -110,6 +110,17 @@ export const createUser = createJsonQuery<NewUser, User>({
 (or, for `url`, a static string). Abort-aware, normalized `RequestError`, optional contract,
 plus all the usual query options.
 
+`mapData` / `validate` work inline too (same semantics as `createQuery`'s — `mapData` reshapes
+the validated response before `$data`, `validate` composes after the contract):
+
+```ts
+const userNameQuery = createJsonQuery<{ id: number }, { user: User }, string>({
+  request: { url: ({ id }) => `/api/users/${id}` },
+  mapData: ({ result }) => result.user.name,
+  validate: ({ result }) => result.user != null || ['empty user'],
+});
+```
+
 ### Sourced fields (reactive, fork-correct)
 
 Any request field can also be read from a `Store` — handy for an auth token or base URL that

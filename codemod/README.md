@@ -41,6 +41,11 @@ npx effector-refetch-codemod "src/**/*.ts" --dry   # preview, write nothing
   ```
 
 - Rewrites `applyBarrier(q, { barrier })` to the positional `applyBarrier(q, barrier)`.
+- Migrates the `createJsonQuery` / `createJsonMutation` shape: drops `params: declareParams<T>()`
+  (leaving a TODO pointing at the `createJsonQuery<T, Response>` generics), hoists
+  `response.mapData` / `response.validate` to the top level (supported inline since 0.17), and
+  flags remaining `response` fields (`status`, sourced `{ source, fn }` forms) for hand-migration.
+  Unknown imports that end up unreferenced (a dropped `declareParams`) are removed outright.
 - **Annotates instead of silently migrating** shapes that differ between the libraries:
   `update(q, { on, by })` (here it's `update({ query, on, fn })`), `keepFresh(q, { automatically })`,
   `createBarrier({ active })`, `retry({ otherwise, mapParams })`, `concurrency({ abortAll })`,
