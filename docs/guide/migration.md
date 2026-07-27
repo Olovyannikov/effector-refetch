@@ -29,24 +29,24 @@ manual mapping below covers the rest.
 The mental model is close, so most code maps directly. The main shift: **bring your own
 effect**, and inline options are available alongside operators.
 
-| farfetched                             | effector-refetch                                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `createQuery({ handler })`             | `createQuery({ effect })` (or `{ handler }`)                                                      |
-| `createJsonQuery({ ... })`             | `createJsonQuery({ request, response })`                                                          |
-| `createJsonMutation({ ... })`          | `createJsonMutation({ request, response })`                                                       |
-| `retry(query, { times, delay })`       | `retry(query, …)` **or** inline `createQuery({ retry })`                                          |
-| `cache(query, { ... })`                | `cache(query, …)` **or** inline `createQuery({ cache })`                                          |
-| `concurrency(query, { strategy })`     | `concurrency(query, …)` **or** inline `createQuery({ concurrency })`                              |
-| `timeout(query, { after })`            | `timeout(query, ms)` **or** inline `createQuery({ timeout })`                                     |
-| `keepFresh(query, { triggers })`       | `keepFresh(query, { source, triggers })`                                                          |
-| `connectQuery({ source, fn, target })` | identical                                                                                         |
-| `createMutation`                       | `createMutation` (+ `mutate` alias)                                                               |
-| `createBarrier` / `applyBarrier`       | `createBarrier` / `applyBarrier` (or inline `createQuery({ barrier })`)                           |
-| `@farfetched/atomic-router`            | `attachToRoute({ route, query })` (structural)                                                    |
-| `@@trigger` consumers / producers      | every query/mutation implements `@@trigger`; `keepFresh` consumes it                              |
-| contracts                              | `zodContract` / `runtypesContract` / `ioTsContract` / `standardSchemaContract` / `createContract` |
-| `finished.{success,failure,skip}`      | same names (`success`/`failure` alias `done`/`fail`; `skip` on the `enabled` gate)                |
-| `$data / $error / $status / $pending`  | same names                                                                                        |
+| farfetched                             | effector-refetch                                                                                                                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createQuery({ handler })`             | `createQuery({ effect })` (or `{ handler }`)                                                                                                |
+| `createJsonQuery({ ... })`             | `createJsonQuery({ request, response })`                                                                                                    |
+| `createJsonMutation({ ... })`          | `createJsonMutation({ request, response })`                                                                                                 |
+| `retry(query, { times, delay })`       | `retry(query, …)` **or** inline `createQuery({ retry })`                                                                                    |
+| `cache(query, { ... })`                | `cache(query, …)` **or** inline `createQuery({ cache })`                                                                                    |
+| `concurrency(query, { strategy })`     | `concurrency(query, …)` **or** inline `createQuery({ concurrency })`                                                                        |
+| `timeout(query, { after })`            | `timeout(query, ms)` **or** inline `createQuery({ timeout })`                                                                               |
+| `keepFresh(query, { triggers })`       | `keepFresh(query, { source, triggers })`                                                                                                    |
+| `connectQuery({ source, fn, target })` | identical                                                                                                                                   |
+| `createMutation`                       | `createMutation` (+ `mutate` alias)                                                                                                         |
+| `createBarrier` / `applyBarrier`       | `createBarrier` / `applyBarrier` (or inline `createQuery({ barrier })`)                                                                     |
+| `@farfetched/atomic-router`            | `attachToRoute({ route, query })` (structural)                                                                                              |
+| `@@trigger` consumers / producers      | every query/mutation implements `@@trigger`; `keepFresh` consumes it                                                                        |
+| contracts                              | `zodContract` / `runtypesContract` / `ioTsContract` / `superstructContract` / `typedContract` / `standardSchemaContract` / `createContract` |
+| `finished.{success,failure,skip}`      | same names (`success`/`failure` alias `done`/`fail`; `skip` on the `enabled` gate)                                                          |
+| `$data / $error / $status / $pending`  | same names                                                                                                                                  |
 
 Notable differences:
 
@@ -56,8 +56,8 @@ Notable differences:
 - `useUnit(query)` works directly in React and Vue via `@@unitShape`.
 
 What's not here yet (vs farfetched): the full sourced surface on _every_ field (we source the
-declarative-HTTP fields + a curated config set), and the superstruct / typed-contracts validation
-adapters specifically. See the [roadmap](https://github.com/Olovyannikov/effector-refetch/blob/main/ROADMAP.md).
+declarative-HTTP fields + a curated config set). See the
+[roadmap](https://github.com/Olovyannikov/effector-refetch/blob/main/ROADMAP.md).
 
 ## Within 0.x
 

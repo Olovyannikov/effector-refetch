@@ -20,12 +20,11 @@
   / `headers` в `createJsonQuery` / `createJsonMutation`) плюс выборочный конфиг — `enabled`,
   `concurrency`, `retry.times`, `cache.staleAfter`, `refetchInterval`, `timeout`, — а остальное
   ожидает из параметров эффекта (обычно через `sample`). Ближе, чем было, но всё ещё уже.
-- **Пара именованных адаптеров валидации.** farfetched даёт отдельные
-  `@farfetched/{runtypes,io-ts,superstruct,typed-contracts,zod}`. effector-refetch теперь покрывает
-  `runtypesContract`, `ioTsContract`, `zodContract`, плюс `standardSchemaContract` (любая
-  Standard-Schema библиотека — valibot, arktype, zod 4, …), `@withease/contracts` (работает
-  нативно — та же форма `Contract`, без адаптера) и `createContract`. Остаются именно
-  **superstruct** и **typed-contracts** (достижимы через Standard Schema там, где он поддержан).
+- ~~Пара именованных адаптеров валидации.~~ Закрыто: effector-refetch теперь покрывает все
+  именованные адаптеры farfetched — `zodContract`, `runtypesContract`, `ioTsContract`,
+  `superstructContract`, `typedContract` — плюс `standardSchemaContract` (любая Standard-Schema
+  библиотека — valibot, arktype, zod 4, …), `@withease/contracts` (работает нативно — та же
+  форма `Contract`, без адаптера) и `createContract`.
 
 ## Чем effector-refetch отличается (и часто удобнее)
 
@@ -78,33 +77,33 @@
 
 ## Бок о бок
 
-|                       | farfetched                                                    | effector-refetch                                                                              |
-| --------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| единица работы        | внутренний event-исполнитель                                  | ваш реальный `Effect` — first-class                                                           |
-| стиль API             | операторы                                                     | inline-опции **и** операторы                                                                  |
-| операторы             | `retry`/`cache`/`concurrency`/`timeout`/`keepFresh`/`barrier` | тот же набор — inline **и** standalone                                                        |
-| sourced-конфиг        | sourced **всё**                                               | поля HTTP (`url`/`query`/`body`/`headers`) + выборочный конфиг + `source`/`mapParams`         |
-| валидация             | runtypes / io-ts / superstruct / typed-contracts / zod        | runtypes / io-ts / zod / Standard Schema / `@withease/contracts` (нативно) / `createContract` |
-| декларативный HTTP    | `createJsonQuery` + `createJsonMutation`                      | `createJsonQuery` + `createJsonMutation` (поверх `createJsonRequestFx`)                       |
-| пагинация             | —                                                             | `createInfiniteQuery` (двунаправленная)                                                       |
-| отмена                | abort + discard                                               | реальный `AbortSignal` через `createRequestFx`                                                |
-| barrier / мьютекс     | `createBarrier` + оператор `applyBarrier`                     | `createBarrier` + оператор `applyBarrier`                                                     |
-| офлайн-режим          | собирается на барьере                                         | встроенный `createNetworkBarrier`                                                             |
-| протокол `@@trigger`  | реализует + потребляет (`keepFresh` triggers)                 | реализует (каждый query/mutation) + потребляет (`keepFresh` triggers)                         |
-| роутер                | `@farfetched/atomic-router`                                   | `attachToRoute` (структурно — без импорта роутера)                                            |
-| devtools              | `@farfetched/dev-tools`                                       | визуальные панели (React/Vue/Solid) + поток интроспекции                                      |
-| биндинги              | `@farfetched/solid` + `useUnit`                               | react / vue / solid + `useQuery` + `useSuspenseQuery`                                         |
-| SSR                   | `fork` / `allSettled` (in-memory кэш глобален)                | `fork` / `allSettled` + scope-изолированный кэш (`$queryCache`)                               |
-| конкурентность        | TAKE_LATEST / FIRST / EVERY                                   | + полосы (`key`) + `QUEUE` (сериализация)                                                     |
-| причины абортов       | —                                                             | типизированы на `aborted` + `signal.reason`                                                   |
-| императивный await    | —                                                             | `startAsync` / `mutateAsync` (настоящие Effects)                                              |
-| runtime-дефолты       | —                                                             | `$queryDefaults` (на fork)                                                                    |
-| debounce / fallback   | руками                                                        | инлайн-опции + операторы                                                                      |
-| оптимистичные апдейты | `update`                                                      | `update` + `optimisticUpdate` (слои, перебазирование)                                         |
-| tag-инвалидация       | —                                                             | `invalidateTag` (кросс-модульно)                                                              |
-| форма состояния       | отдельные сторы                                               | гранулярные сторы **и** union `$state`                                                        |
-| interop / миграция    | —                                                             | `effector-refetch/tanstack`, `effector-refetch/apollo`                                        |
-| зрелость / экосистема | **больше, проверена в бою**                                   | молодой, активно развивается                                                                  |
+|                       | farfetched                                                    | effector-refetch                                                                      |
+| --------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| единица работы        | внутренний event-исполнитель                                  | ваш реальный `Effect` — first-class                                                   |
+| стиль API             | операторы                                                     | inline-опции **и** операторы                                                          |
+| операторы             | `retry`/`cache`/`concurrency`/`timeout`/`keepFresh`/`barrier` | тот же набор — inline **и** standalone                                                |
+| sourced-конфиг        | sourced **всё**                                               | поля HTTP (`url`/`query`/`body`/`headers`) + выборочный конфиг + `source`/`mapParams` |
+| валидация             | runtypes / io-ts / superstruct / typed-contracts / zod        | те же пять + Standard Schema + `@withease/contracts` (нативно) + `createContract`     |
+| декларативный HTTP    | `createJsonQuery` + `createJsonMutation`                      | `createJsonQuery` + `createJsonMutation` (поверх `createJsonRequestFx`)               |
+| пагинация             | —                                                             | `createInfiniteQuery` (двунаправленная)                                               |
+| отмена                | abort + discard                                               | реальный `AbortSignal` через `createRequestFx`                                        |
+| barrier / мьютекс     | `createBarrier` + оператор `applyBarrier`                     | `createBarrier` + оператор `applyBarrier`                                             |
+| офлайн-режим          | собирается на барьере                                         | встроенный `createNetworkBarrier`                                                     |
+| протокол `@@trigger`  | реализует + потребляет (`keepFresh` triggers)                 | реализует (каждый query/mutation) + потребляет (`keepFresh` triggers)                 |
+| роутер                | `@farfetched/atomic-router`                                   | `attachToRoute` (структурно — без импорта роутера)                                    |
+| devtools              | `@farfetched/dev-tools`                                       | визуальные панели (React/Vue/Solid) + поток интроспекции                              |
+| биндинги              | `@farfetched/solid` + `useUnit`                               | react / vue / solid + `useQuery` + `useSuspenseQuery`                                 |
+| SSR                   | `fork` / `allSettled` (in-memory кэш глобален)                | `fork` / `allSettled` + scope-изолированный кэш (`$queryCache`)                       |
+| конкурентность        | TAKE_LATEST / FIRST / EVERY                                   | + полосы (`key`) + `QUEUE` (сериализация)                                             |
+| причины абортов       | —                                                             | типизированы на `aborted` + `signal.reason`                                           |
+| императивный await    | —                                                             | `startAsync` / `mutateAsync` (настоящие Effects)                                      |
+| runtime-дефолты       | —                                                             | `$queryDefaults` (на fork)                                                            |
+| debounce / fallback   | руками                                                        | инлайн-опции + операторы                                                              |
+| оптимистичные апдейты | `update`                                                      | `update` + `optimisticUpdate` (слои, перебазирование)                                 |
+| tag-инвалидация       | —                                                             | `invalidateTag` (кросс-модульно)                                                      |
+| форма состояния       | отдельные сторы                                               | гранулярные сторы **и** union `$state`                                                |
+| interop / миграция    | —                                                             | `effector-refetch/tanstack`, `effector-refetch/apollo`                                |
+| зрелость / экосистема | **больше, проверена в бою**                                   | молодой, активно развивается                                                          |
 
 ## SSR бок о бок
 
@@ -127,8 +126,8 @@ inMemoryCache()]] })` изолирует кэш каждого query в этом
 
 ## Что выбрать?
 
-- **Берите farfetched**, если нужен самый зрелый вариант сегодня, вы активно полагаетесь на
-  sourced-everything или нужны именно адаптеры superstruct / typed-contracts.
+- **Берите farfetched**, если нужен самый зрелый вариант сегодня или вы активно полагаетесь на
+  sourced-everything.
 - **Берите effector-refetch**, если предпочитаете оборачивать свои эффекты, хотите inline-конфиг,
   реальную отмену, встроенную пагинацию, декларативные чтения **и** записи, примитивы
   barrier/offline, структурную интеграцию с роутером, кросс-фреймворковые devtools или маленькое

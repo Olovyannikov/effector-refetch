@@ -128,3 +128,50 @@ export function ioTsContract<T>(codec: IoTsLike<T>): Contract<T> {
     },
   };
 }
+
+// ---- superstruct ----
+
+interface SuperstructLike<T> {
+  validate: (
+    raw: unknown,
+  ) => [
+    (
+      | { message: string; failures?: () => Iterable<{ path: Array<string | number>; message: string }> }
+      | undefined
+    ),
+    T | undefined,
+  ];
+}
+
+/** Contract from a superstruct Struct (structural — reads `[error, value]`, no import). */
+export function superstructContract<T>(struct: SuperstructLike<T>): Contract<T> {
+  return {
+    isData: (raw) => struct.validate(raw)[0] === undefined,
+    getErrorMessages: (raw) => {
+      const [error] = struct.validate(raw);
+      if (!error) return [];
+      const failures = error.failures ? [...error.failures()] : [];
+      if (failures.length === 0) return [error.message];
+      return failures.map((f) => {
+        const path = f.path.join('.');
+        return path ? `${path}: ${f.message}` : f.message;
+      });
+    },
+  };
+}
+
+// ---- typed-contracts ----
+
+/** A typed-contracts validator: returns the value or a `ValidationError` (an `Error`). */
+type TypedContractLike<T> = (valueName: string, value: unknown) => T | Error;
+
+/** Contract from a typed-contracts validator (structural — detects the returned `Error`). */
+export function typedContract<T>(contract: TypedContractLike<T>): Contract<T> {
+  return {
+    isData: (raw) => !(contract('response', raw) instanceof Error),
+    getErrorMessages: (raw) => {
+      const result = contract('response', raw);
+      return result instanceof Error ? [result.message] : [];
+    },
+  };
+}

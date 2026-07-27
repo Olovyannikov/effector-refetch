@@ -48,6 +48,8 @@ const KNOWN_EXPORTS = new Set([
   'standardSchemaContract',
   'runtypesContract',
   'ioTsContract',
+  'superstructContract',
+  'typedContract',
   // cache & data access
   '$queryCache',
   'inMemoryCache',
@@ -97,6 +99,8 @@ const CONTRACT_PACKAGES = {
   '@farfetched/zod': { zodContract: 'zodContract' },
   '@farfetched/io-ts': { ioTsContract: 'ioTsContract' },
   '@farfetched/runtypes': { runtypeContract: 'runtypesContract', runtypesContract: 'runtypesContract' },
+  '@farfetched/superstruct': { superstructContract: 'superstructContract' },
+  '@farfetched/typed-contracts': { typedContract: 'typedContract' },
 };
 
 // farfetched `Time` strings ('5min', '1h', …) — effector-refetch wants numbers
