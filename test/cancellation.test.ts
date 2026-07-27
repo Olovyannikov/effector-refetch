@@ -129,3 +129,66 @@ describe('abort reason rides on the signal (reatom-inspired)', () => {
     expect(scope.getState(query.$status)).toBe('fail');
   });
 });
+
+describe('cancel restores the last SETTLED status (reatom-inspired, #57)', () => {
+  it('cancelling a refetch after a FAILURE with stale data stays "fail", not "done"', async () => {
+    let mode: 'ok' | 'fail' | 'hang' = 'ok';
+    const gates: Array<() => void> = [];
+    const fx = createEffect((n: number) => {
+      if (mode === 'ok') return Promise.resolve(`v${n}`);
+      if (mode === 'fail') return Promise.reject(new Error('boom'));
+      return new Promise<string>((_res, rej) => gates.push(() => rej(new Error('aborted'))));
+    });
+    const query = createQuery({ effect: fx });
+    const scope = fork();
+
+    await allSettled(query.start, { scope, params: 1 }); // done, stale data present
+    mode = 'fail';
+    await allSettled(query.start, { scope, params: 2 }); // fail (data from step 1 kept)
+    expect(scope.getState(query.$status)).toBe('fail');
+    expect(scope.getState(query.$data)).toBe('v1');
+
+    mode = 'hang';
+    const p = allSettled(query.start, { scope, params: 3 }); // pending over stale data
+    const pc = allSettled(query.cancel, { scope }); // not awaited yet: the zombie holds the scope
+    gates[0]();
+    await Promise.all([p, pc]);
+
+    // before the fix: data != null -> 'done', hiding the failure
+    expect(scope.getState(query.$status)).toBe('fail');
+  });
+
+  it('cancelling the very first run still settles to "initial"', async () => {
+    const { fx } = abortableEffect();
+    const query = createQuery({ effect: fx });
+    const scope = fork();
+
+    const p = allSettled(query.start, { scope, params: 1 });
+    await allSettled(query.cancel, { scope });
+    await p;
+
+    expect(scope.getState(query.$status)).toBe('initial');
+  });
+
+  it('cancelling a refetch after a success stays "done"', async () => {
+    let hang = false;
+    const gates: Array<() => void> = [];
+    const fx = createEffect((n: number) =>
+      hang
+        ? new Promise<string>((_res, rej) => gates.push(() => rej(new Error('x'))))
+        : Promise.resolve(`v${n}`),
+    );
+    const query = createQuery({ effect: fx });
+    const scope = fork();
+
+    await allSettled(query.start, { scope, params: 1 });
+    hang = true;
+    const p = allSettled(query.refresh, { scope, params: 1 });
+    const pc = allSettled(query.cancel, { scope }); // not awaited yet: the zombie holds the scope
+    gates[0]();
+    await Promise.all([p, pc]);
+
+    expect(scope.getState(query.$status)).toBe('done');
+    expect(scope.getState(query.$data)).toBe('v1');
+  });
+});

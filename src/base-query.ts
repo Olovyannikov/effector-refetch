@@ -1124,14 +1124,19 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     .on(dataCacheHit, () => 'done' as const)
     .on(finalFail, () => 'fail' as const)
     .reset(reset);
-  // cancel leaves "pending" — settle the status to reflect what we have.
-  // Only when actually in-flight: cancelling an already-settled query (done / fail)
-  // is a no-op, so it can't flip a finished failure back to "done" on stale data.
+  // cancel leaves "pending" — restore the LAST SETTLED status (reatom-style), not a
+  // guess from `data != null`: cancelling a refetch that followed a failure with stale
+  // data must stay 'fail', not flip to 'done'. Only when actually in-flight: cancelling
+  // an already-settled query is a no-op.
+  const $lastSettled = createStore<QueryStatus>('initial', nm('$lastSettled'))
+    .on([dataAccepted, dataRecovered, dataCacheHit, dataStale], () => 'done' as const)
+    .on(finalFail, () => 'fail' as const)
+    .reset(reset);
   sample({
     clock: cancel,
-    source: { data: $data, status: $status },
+    source: { last: $lastSettled, status: $status },
     filter: ({ status }) => status === 'pending',
-    fn: ({ data }): QueryStatus => (data != null ? 'done' : 'initial'),
+    fn: ({ last }): QueryStatus => last,
     target: $status,
   });
 
