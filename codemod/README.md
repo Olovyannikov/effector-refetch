@@ -46,6 +46,11 @@ npx effector-refetch-codemod "src/**/*.ts" --dry   # preview, write nothing
   `response.mapData` / `response.validate` to the top level (supported inline since 0.17), and
   flags remaining `response` fields (`status`, sourced `{ source, fn }` forms) for hand-migration.
   Unknown imports that end up unreferenced (a dropped `declareParams`) are removed outright.
+- Migrates `@farfetched/atomic-router`: a `chainRoute({ route, ...startChain(q) })` whose result
+  is unused becomes `attachToRoute({ route, query })` (imports cleaned up, `attachToRoute` added);
+  `freshChain` rewrites too, with a note to pair the query with `cache({ staleAfter })`. A chained
+  route that **is** used gates its opening on the query settling — `attachToRoute` has no such
+  gate, so those calls are kept and annotated instead.
 - **Annotates instead of silently migrating** shapes that differ between the libraries:
   `update(q, { on, by })` (here it's `update({ query, on, fn })`), `keepFresh(q, { automatically })`,
   `createBarrier({ active })`, `retry({ otherwise, mapParams })`, `concurrency({ abortAll })`,
