@@ -1,5 +1,20 @@
 # effector-refetch
 
+## 0.19.0
+
+### Minor Changes
+
+- e9e5a22: `superstructContract` and `typedContract` — the last two named farfetched validation adapters
+  are now matched (structural, dependency-free, like the rest): a superstruct `Struct` or a
+  typed-contracts validator becomes a `Contract` with per-path error messages. The codemod also
+  rewrites `@farfetched/superstruct` / `@farfetched/typed-contracts` imports automatically.
+- 14d6e65: `createQuery({ initialData })` / `createJsonQuery({ initialData })` now type `$data` as
+  **non-null** (`Store<Data>` instead of `Store<Data | null>`) — with initial data the store can
+  never hold `null`, so downstream code needs no `?.` or guards. Matches farfetched's typing and
+  removes a whole class of errors when migrating. The `Data` type parameter is threaded through
+  `useQuery` in the React / Vue / Solid bindings and `@@unitShape`, and defaults to
+  `Mapped | null`, so all existing code compiles unchanged.
+
 ## 0.18.0
 
 ### Minor Changes
