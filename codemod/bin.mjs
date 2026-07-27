@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Project } from 'ts-morph';
+import { Project, QuoteKind } from 'ts-morph';
 import { transformSourceFile } from './transform.mjs';
 
 const argv = process.argv.slice(2);
@@ -13,7 +13,10 @@ if (patterns.length === 0) {
   process.exit(1);
 }
 
-const project = new Project({ skipAddingFilesFromTsConfig: true });
+const project = new Project({
+  skipAddingFilesFromTsConfig: true,
+  manipulationSettings: { quoteKind: QuoteKind.Single },
+});
 project.addSourceFilesAtPaths(patterns);
 
 const files = project.getSourceFiles();
