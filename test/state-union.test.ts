@@ -115,3 +115,32 @@ describe('$state — one discriminated union', () => {
     expect(scope.getState(query.$state)).toEqual({ ...INITIAL, params: 1 } satisfies State);
   });
 });
+
+describe('status flags ($succeeded / $failed / $finished)', () => {
+  it('follow $status through the lifecycle, on queries and mutations', async () => {
+    const d = abortableDeferred<number, User>();
+    const query = createQuery({ effect: d.fx });
+    const scope = fork();
+    const flags = () => ({
+      succeeded: scope.getState(query.$succeeded),
+      failed: scope.getState(query.$failed),
+      finished: scope.getState(query.$finished),
+    });
+
+    expect(flags()).toEqual({ succeeded: false, failed: false, finished: false });
+
+    const p1 = allSettled(query.start, { scope, params: 1 });
+    expect(flags()).toEqual({ succeeded: false, failed: false, finished: false }); // pending
+    d.resolve(0, { id: 1, name: 'ada' });
+    await p1;
+    expect(flags()).toEqual({ succeeded: true, failed: false, finished: true });
+
+    const p2 = allSettled(query.refresh, { scope, params: 2 });
+    d.reject(1, new Error('boom'));
+    await p2;
+    expect(flags()).toEqual({ succeeded: false, failed: true, finished: true });
+
+    await allSettled(query.reset, { scope });
+    expect(flags()).toEqual({ succeeded: false, failed: false, finished: false });
+  });
+});

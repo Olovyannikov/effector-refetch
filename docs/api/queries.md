@@ -50,6 +50,9 @@ refetch: `$isInitialLoading` — in flight with no real data yet (placeholder do
 (refetch / polling / SWR revalidation) — keep the data visible, show a corner spinner.
 Runnable demo: [`examples/loading-flags.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/loading-flags.ts).
 
+Status flags (farfetched-compatible, derived from `$status`, on queries **and** mutations):
+`$succeeded` (`'done'`), `$failed` (`'fail'`), `$finished` (settled either way).
+
 `query.prefetch(params)` warms the cache for `params` **without** touching `$data`/`$status`
 (no-op without a cache, skips when already fresh) — e.g. prefetch the next page on hover.
 
