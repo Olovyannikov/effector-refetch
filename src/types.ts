@@ -178,6 +178,56 @@ export interface SourcedConfig {
 }
 
 /** Same as CreateQueryConfig but with a plain async handler instead of an Effect. */
+
+/**
+ * {@link CreateQueryConfig} with `initialData` required and no `mapData` — selects the
+ * non-null `$data` overload. Split from the mapData variant so `Mapped` inference gets
+ * the right candidates: without mapData the initial value types against `Result` (a
+ * bare `initialData: null` must not collapse the store type to `null`).
+ */
+export interface CreateQueryConfigWithInitial<Params, Result, Error> extends CreateQueryConfig<
+  Params,
+  Result,
+  Error,
+  Result
+> {
+  mapData?: undefined;
+  initialData: Result;
+}
+
+/** {@link CreateQueryConfig} with both `mapData` and `initialData` — non-null MAPPED `$data`. */
+export interface CreateQueryConfigWithInitialMapped<Params, Result, Error, Mapped> extends CreateQueryConfig<
+  Params,
+  Result,
+  Error,
+  Mapped
+> {
+  mapData: (ctx: { result: Result; params: Params }) => Mapped;
+  initialData: Mapped;
+}
+
+/** {@link CreateQueryHandlerConfig} with `initialData` required and no `mapData`. */
+export interface CreateQueryHandlerConfigWithInitial<Params, Result, Error> extends CreateQueryHandlerConfig<
+  Params,
+  Result,
+  Error,
+  Result
+> {
+  mapData?: undefined;
+  initialData: Result;
+}
+
+/** {@link CreateQueryHandlerConfig} with both `mapData` and `initialData`. */
+export interface CreateQueryHandlerConfigWithInitialMapped<
+  Params,
+  Result,
+  Error,
+  Mapped,
+> extends CreateQueryHandlerConfig<Params, Result, Error, Mapped> {
+  mapData: (ctx: { result: Result; params: Params }) => Mapped;
+  initialData: Mapped;
+}
+
 export interface CreateQueryHandlerConfig<Params, Result, Error, Mapped = Result> extends Omit<
   CreateQueryConfig<Params, Result, Error, Mapped>,
   'effect'

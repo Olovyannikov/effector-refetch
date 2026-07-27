@@ -53,7 +53,7 @@ export interface CreateJsonQueryConfig<Params, Response, Mapped = Response> {
   retry?: number | RetryConfig<RequestError>;
   cache?: boolean | CacheConfig<Params>;
   enabled?: Store<boolean>;
-  initialData?: Mapped;
+  initialData?: NoInfer<Mapped>;
   name?: string;
 }
 
@@ -195,10 +195,33 @@ export function createJsonRequestFx<Params = void, Response = unknown>(
  *     response: { contract: zodContract(UserSchema) },
  *   });
  */
+/** {@link CreateJsonQueryConfig} with `initialData` required and no `mapData` — non-null `$data`. */
+export interface CreateJsonQueryConfigWithInitial<Params, Response> extends CreateJsonQueryConfig<
+  Params,
+  Response,
+  Response
+> {
+  mapData?: undefined;
+  initialData: Response;
+}
+
+/** {@link CreateJsonQueryConfig} with both `mapData` and `initialData` — non-null MAPPED `$data`. */
+export interface CreateJsonQueryConfigWithInitialMapped<
+  Params,
+  Response,
+  Mapped,
+> extends CreateJsonQueryConfig<Params, Response, Mapped> {
+  mapData: (ctx: { result: Response; params: Params }) => Mapped;
+  initialData: Mapped;
+}
+
 // with `initialData` the `$data` store can never be null (farfetched-compatible typing)
 export function createJsonQuery<Params = void, Response = unknown, Mapped = Response>(
-  config: CreateJsonQueryConfig<Params, Response, Mapped> & { initialData: Mapped },
+  config: CreateJsonQueryConfigWithInitialMapped<Params, Response, Mapped>,
 ): Query<Params, Response, RequestError, Mapped, Mapped>;
+export function createJsonQuery<Params = void, Response = unknown>(
+  config: CreateJsonQueryConfigWithInitial<Params, Response>,
+): Query<Params, Response, RequestError, Response, Response>;
 export function createJsonQuery<Params = void, Response = unknown, Mapped = Response>(
   config: CreateJsonQueryConfig<Params, Response, Mapped>,
 ): Query<Params, Response, RequestError, Mapped>;
