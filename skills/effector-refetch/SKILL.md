@@ -50,7 +50,7 @@ const fetchUserFx = createEffect((id: number) => fetch(`/api/users/${id}`).then(
 const userQuery = createQuery({
   effect: fetchUserFx, // required: a real Effect (or `handler: (p) => Promise<R>`)
   retry: 3, // number | { times, delay, filter, suppressIntermediateErrors }
-  cache: true, // true | { adapter, staleAfter, key, swr, dedupe }
+  cache: true, // true | { adapter, staleAfter, key, swr (| {silent}), dedupe, fillOnAbort }
   debounce: 300, // wait before running; a newer same-lane run during the wait wins (pre-network)
   fallback: [], // recover a FINAL failure into data (value | ({error, params}) => value); not cached
   concurrency: 'TAKE_LATEST', // 'TAKE_LATEST' (default) | 'TAKE_FIRST' | 'TAKE_EVERY' | 'QUEUE' (serialized)

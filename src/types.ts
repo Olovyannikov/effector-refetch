@@ -96,8 +96,18 @@ export interface CacheConfig<Params = unknown> {
   key?: (params: Params) => string;
   /** Event that clears the whole cache when fired. */
   purge?: Event<unknown>;
-  /** Stale-while-revalidate: serve a stale entry immediately, then refetch in the background. */
-  swr?: boolean;
+  /**
+   * Stale-while-revalidate: serve a stale entry immediately, then refetch in the
+   * background. `{ silent: true }` keeps a FAILED revalidation off `$error`/`$status`
+   * (the stale data stays on screen); `finished.fail` still fires for observers.
+   */
+  swr?: boolean | { silent?: boolean };
+  /**
+   * Let a SUPERSEDED in-flight run finish so its response still lands in the cache —
+   * the run is only detached from `$data`/status. Explicit `cancel`/`reset` still
+   * abort for real. Off by default.
+   */
+  fillOnAbort?: boolean;
   /** Coalesce identical in-flight requests (by key) into one effect run. */
   dedupe?: boolean;
 }
@@ -217,7 +227,9 @@ export interface ResolvedCache<Params = unknown> {
   staleAfter: number | null;
   key: (params: Params) => string;
   swr: boolean;
+  swrSilent: boolean;
   dedupe: boolean;
+  fillOnAbort: boolean;
 }
 
 /** Lifecycle event stream for devtools / logging. */
@@ -366,7 +378,7 @@ export interface Query<Params, Result, Error, Mapped = Result> {
   __: {
     effect: QueryEffect<Params, Result, Error>;
     runFx: Effect<
-      { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number },
+      { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number; swr: boolean },
       any,
       Error
     >;
@@ -460,7 +472,7 @@ export interface Mutation<Params, Result, Error, Mapped = Result> {
   __: {
     effect: QueryEffect<Params, Result, Error>;
     runFx: Effect<
-      { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number },
+      { runId: number; params: Params; mapped: unknown; timeoutMs: number; attempts: number; swr: boolean },
       any,
       Error
     >;

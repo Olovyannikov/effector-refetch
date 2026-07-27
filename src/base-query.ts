@@ -50,6 +50,8 @@ interface Run<P> {
   timeoutMs: number;
   /** Retries already performed for THIS run — per-run, so concurrent runs never share a budget. */
   attempts: number;
+  /** This run is a background SWR revalidation (a stale entry is already on screen). */
+  swr: boolean;
 }
 interface ExecDone<P, R> extends Run<P> {
   result: R;
@@ -155,7 +157,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     adapter: ResolvedCache<Params>['adapter'];
     key: (p: Params) => string;
     swr: boolean;
+    swrSilent: boolean;
     dedupe: boolean;
+    fillOnAbort: boolean;
   } | null = null;
   const dedupeKey = (mapped: unknown): string | null =>
     cacheRef && cacheRef.dedupe ? cacheRef.key(mapped as Params) : null;
@@ -310,6 +314,10 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     source: $runRegistry,
     effect(reg: RunRegistry | null, { lane, reason }: { lane: string | null; reason: AbortReason }) {
       if (!reg) return;
+      // fillOnAbort: a superseded run keeps executing so its response can still land
+      // in the cache (its settle is detached from $data by the currency check anyway);
+      // explicit cancel/reset always aborts for real
+      if (reason === 'superseded' && cacheRef?.fillOnAbort) return;
       const abort = abortSet(reason);
       if (lane == null) reg.controllers.forEach(abort);
       else abort(reg.controllers.get(lane));
@@ -322,7 +330,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const runFx = attach({
     name: ns ? `${ns}.runFx` : undefined,
     source: $runRegistry,
-    effect: async (reg, { runId, params, mapped, timeoutMs, attempts }: Run<Params>) => {
+    effect: async (reg, { runId, params, mapped, timeoutMs, attempts, swr }: Run<Params>) => {
       const key = dedupeKey(mapped);
       if (key) reg?.inflightKeys.add(key);
       const lane = laneOf(params);
@@ -340,7 +348,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       try {
         const exec = callEffect(mapped, controller.signal);
         if (!timeoutMs || timeoutMs <= 0) {
-          return { runId, params, mapped, timeoutMs, attempts, result: await exec };
+          return { runId, params, mapped, timeoutMs, attempts, swr, result: await exec };
         }
         // race the request against a deadline; on timeout, abort it (abortable
         // effects actually stop) and reject — the normal fail/retry path handles it
@@ -351,7 +359,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
           }, timeoutMs);
         });
         const result = (await Promise.race([exec, timedOut])) as Result;
-        return { runId, params, mapped, timeoutMs, attempts, result };
+        return { runId, params, mapped, timeoutMs, attempts, swr, result };
       } finally {
         if (timer) clearTimeout(timer);
         if (key) reg?.inflightKeys.delete(key);
@@ -569,7 +577,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
 
   // cache lookup / exec branch — presence via cacheRef, staleAfter sourced
-  const toExec = createEvent<{ params: Params; mapped: unknown }>(evName('toExec'));
+  const toExec = createEvent<{ params: Params; mapped: unknown; swr?: boolean }>(evName('toExec'));
   const cacheHit = createEvent<{ params: Params; result: Result }>(evName('cacheHit'));
   // current-run success, before validation (carries runId for the retry path)
   const rawDone = createEvent<{
@@ -579,6 +587,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     result: Result;
     timeoutMs: number;
     attempts: number;
+    swr: boolean;
   }>(evName('rawDone'));
   // validated success — drives $data, cache write, finished.done
   const acceptedDone = createEvent<{ params: Params; mapped: unknown; result: Result }>(
@@ -644,7 +653,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   sample({
     clock: lookupFx.doneData,
     filter: ({ fresh, entry }) => !fresh && entry != null && swrOf(),
-    fn: ({ params, mapped }) => ({ params, mapped }),
+    fn: ({ params, mapped }) => ({ params, mapped, swr: true }),
     target: toExec,
   });
   // miss, or stale without SWR -> just execute
@@ -752,7 +761,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
 
   // dedupe gate: drop a run whose key is already in flight (coalesce) — per scope
-  const toRun = createEvent<{ params: Params; mapped: unknown }>(evName('toRun'));
+  const toRun = createEvent<{ params: Params; mapped: unknown; swr?: boolean }>(evName('toRun'));
   sample({
     clock: toExec,
     source: $runRegistry,
@@ -774,6 +783,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       mapped: r.mapped,
       timeoutMs: timeoutOf(timeout, defs),
       attempts: 0,
+      swr: r.swr ?? false,
     }),
   });
   $runId.on(tagged, (_id, t) => t.runId);
@@ -821,6 +831,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       result: result.result,
       timeoutMs: result.timeoutMs,
       attempts: result.attempts,
+      swr: result.swr,
     }),
     target: rawDone,
   });
@@ -830,6 +841,27 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     filter: (s, { result }) => !currentIn(s, result),
     fn: (s, { result }) => staleAbort(s, result),
     target: aborted,
+  });
+  // fillOnAbort: a superseded run that was allowed to finish still warms the cache
+  // (validation permitting) — only its connection to $data/status was severed
+  sample({
+    clock: runFx.done,
+    source: { laneIds: $laneIds, strat: $strategySrc, defs: $queryDefaults, adapter: $queryCache },
+    filter: (s, { result }) => {
+      if (currentIn(s, result) || !cacheRef?.fillOnAbort) return false;
+      try {
+        return validateRef ? validateRef(result.result, result.params) === null : true;
+      } catch {
+        return false;
+      }
+    },
+    fn: ({ adapter }, { result }) => ({
+      params: result.params,
+      mapped: result.mapped,
+      result: result.result,
+      adapter,
+    }),
+    target: setFx,
   });
 
   // ---- failure / retry ----
@@ -863,6 +895,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     error: Error;
     timeoutMs: number;
     attempts: number;
+    swr: boolean;
   }>(evName('failed'));
 
   // validation gate: a current-run success must pass the contract / validate fn,
@@ -893,13 +926,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   sample({
     clock: checked,
     filter: ({ errors }) => errors !== null,
-    fn: ({ runId, params, mapped, result, timeoutMs, attempts, errors }) => ({
+    fn: ({ runId, params, mapped, result, timeoutMs, attempts, swr, errors }) => ({
       runId,
       params,
       mapped,
       error: new ValidationError(errors ?? [], result) as unknown as Error,
       timeoutMs,
       attempts,
+      swr,
     }),
     target: failed,
   });
@@ -913,6 +947,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       error,
       timeoutMs: params.timeoutMs,
       attempts: params.attempts,
+      swr: params.swr,
     }),
     target: failed,
   });
@@ -953,7 +988,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         : currentIn(s, f)
           ? fallbackRef
             ? ('recover' as const)
-            : ('final' as const)
+            : f.swr && cacheRef?.swrSilent
+              ? ('swrFail' as const) // silent SWR: keep serving stale, no $error/$status
+              : ('final' as const)
           : ('stale' as const);
       // the fallback value is computed HERE, once, under a guard: a throwing fallback
       // demotes the verdict to a plain final failure with the ORIGINAL request error
@@ -971,7 +1008,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         reason: staleReason(s.laneIds, f.params),
         recoveredValue,
         // mapError applied ONCE at construction; consumers use the payload as-is
-        finalError: kind === 'final' ? mapErrorSafe(f.error, f.params) : null,
+        finalError: kind === 'final' || kind === 'swrFail' ? mapErrorSafe(f.error, f.params) : null,
       };
     },
   });
@@ -985,6 +1022,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       error: f.error,
       timeoutMs: f.timeoutMs,
       attempts: f.attempts,
+      swr: f.swr,
     }),
     target: scheduleRetry,
   });
@@ -993,6 +1031,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     filter: ({ kind }) => kind === 'final',
     fn: ({ f, finalError }) => ({ params: f.params, error: finalError as Error }),
     target: finalFail,
+  });
+  // silent SWR revalidation failure: the stale data stays on screen ($error/$status
+  // untouched), but finished.fail still fires — observers and startAsync learn the truth
+  sample({
+    clock: failVerdict,
+    filter: ({ kind }) => kind === 'swrFail',
+    fn: ({ f, finalError }) => ({ params: f.params, error: finalError as Error }),
+    target: finishedFail,
   });
   // fallback recovers the final failure into data (aborts/skips never reach this stream)
   sample({
@@ -1022,6 +1068,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         mapped: s.mapped,
         timeoutMs: s.timeoutMs,
         attempts: s.attempts + 1,
+        swr: s.swr,
       } as Run<Params>,
     }),
     target: retrySleepFx,
@@ -1403,7 +1450,14 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
           cacheRef = null;
           return;
         }
-        cacheRef = { adapter: cfg.adapter, key: cfg.key, swr: cfg.swr, dedupe: cfg.dedupe };
+        cacheRef = {
+          adapter: cfg.adapter,
+          key: cfg.key,
+          swr: cfg.swr,
+          swrSilent: cfg.swrSilent,
+          dedupe: cfg.dedupe,
+          fillOnAbort: cfg.fillOnAbort,
+        };
         staleAfterConst = cfg.staleAfter;
       },
       setValidate: (fn) => {

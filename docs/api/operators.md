@@ -94,11 +94,20 @@ retry(userQuery, {
 
 ## `cache`
 
-`cache(query)` (in-memory) or a config (adapter / `staleAfter` / `key` / `swr` / `dedupe` / `purge`).
+`cache(query)` (in-memory) or a config (adapter / `staleAfter` / `key` / `swr` / `dedupe` /
+`purge` / `fillOnAbort`).
 
 ```ts
 cache(productsQuery, { staleAfter: 30_000, swr: true, purge: loggedOut });
+cache(feedQuery, { swr: { silent: true }, fillOnAbort: true });
 ```
+
+- **`swr: { silent: true }`** — a failed background revalidation keeps serving the stale
+  entry silently: `$error`/`$status` stay untouched, `finished.fail` still fires for
+  observers (and `startAsync` still rejects).
+- **`fillOnAbort: true`** — a SUPERSEDED in-flight run is allowed to finish so its
+  response still lands in the cache; only its connection to `$data`/status is severed.
+  Explicit `cancel`/`reset` aborts for real.
 
 ## `timeout`
 
