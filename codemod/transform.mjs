@@ -88,6 +88,10 @@ const KNOWN_EXPORTS = new Set([
   'Barrier',
 ]);
 
+// @farfetched/atomic-router: chainRoute helpers that map onto attachToRoute
+const ROUTER_PKG = '@farfetched/atomic-router';
+const CHAIN_HELPERS = new Set(['startChain', 'freshChain']);
+
 // farfetched validation adapters -> same-name (or renamed) main-entry exports
 const CONTRACT_PACKAGES = {
   '@farfetched/zod': { zodContract: 'zodContract' },
@@ -254,6 +258,114 @@ export function transformSourceFile(sf) {
       );
     }
     changed = true;
+  }
+
+  // 2.5) @farfetched/atomic-router: `chainRoute({ route, ...startChain(q) })` ->
+  //      `attachToRoute({ route, query })` when the chained route is unused (the wiring
+  //      pattern). A chained route that IS used gates its opening on the query settling —
+  //      attachToRoute has no such gate, so those are annotated, not rewritten.
+  let needAttachToRoute = false;
+  const routerImport = sf.getImportDeclarations().find((imp) => imp.getModuleSpecifierValue() === ROUTER_PKG);
+  if (routerImport) {
+    for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      if (call.wasForgotten()) continue;
+      if (call.getExpression().getText() !== 'chainRoute') continue;
+      const cfg = call.getArguments()[0];
+      if (!cfg || cfg.getKind() !== SyntaxKind.ObjectLiteralExpression) continue;
+
+      const spread = cfg
+        .getProperties()
+        .find(
+          (p) =>
+            Node.isSpreadAssignment(p) &&
+            p.getExpression().getKind() === SyntaxKind.CallExpression &&
+            CHAIN_HELPERS.has(p.getExpression().getExpression().getText()),
+        );
+      if (!spread) continue;
+      const helper = spread.getExpression().getExpression().getText();
+      const queryText = spread.getExpression().getArguments()[0]?.getText();
+      const routeText = cfg.getProperty('route')?.getInitializer?.()?.getText() ?? 'route';
+      const stmt =
+        call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement) ??
+        call.getFirstAncestorByKind(SyntaxKind.VariableStatement);
+      if (!stmt || !queryText) continue;
+
+      const bare = stmt.getKind() === SyntaxKind.ExpressionStatement && stmt.getExpression() === call;
+      const simple = cfg.getProperties().length === 2 && cfg.getProperty('route');
+      if (bare && simple) {
+        const note =
+          helper === 'freshChain'
+            ? `${TODO} freshChain refetched only when stale — attachToRoute restarts on every open; pair the query with cache({ staleAfter }) to keep that behavior\n`
+            : '';
+        stmt.replaceWithText(`${note}attachToRoute({ route: ${routeText}, query: ${queryText} });`);
+        needAttachToRoute = true;
+        changed = true;
+      } else {
+        if (
+          annotate(
+            stmt,
+            `chainRoute(...${helper}(q)) gates the route on the query settling — attachToRoute({ route, query }) starts/resets without gating; rewrite by hand (docs: /recipes/router)`,
+          )
+        )
+          changed = true;
+      }
+    }
+
+    // prune helper imports that the rewrites made unreferenced
+    const countRefs = (local) =>
+      sf
+        .getDescendantsOfKind(SyntaxKind.Identifier)
+        .filter((id) => id.getText() === local && !Node.isImportSpecifier(id.getParent())).length;
+    if (!routerImport.wasForgotten()) {
+      for (const spec of routerImport.getNamedImports()) {
+        if (
+          CHAIN_HELPERS.has(spec.getName()) &&
+          countRefs(spec.getAliasNode()?.getText() ?? spec.getName()) === 0
+        ) {
+          spec.remove();
+          changed = true;
+        }
+      }
+      if (
+        routerImport.getNamedImports().length === 0 &&
+        !routerImport.getDefaultImport() &&
+        !routerImport.getNamespaceImport()
+      ) {
+        routerImport.remove();
+        changed = true;
+      } else if (routerImport.getNamedImports().length > 0) {
+        annotate(
+          routerImport,
+          `left-over @farfetched/atomic-router usage — see attachToRoute (docs: /recipes/router)`,
+        );
+        changed = true;
+      }
+    }
+    // `chainRoute` itself came from atomic-router — drop it too once unreferenced
+    for (const imp of sf.getImportDeclarations()) {
+      if (imp.getModuleSpecifierValue() !== 'atomic-router') continue;
+      for (const spec of imp.getNamedImports()) {
+        if (
+          spec.getName() === 'chainRoute' &&
+          countRefs(spec.getAliasNode()?.getText() ?? 'chainRoute') === 0
+        ) {
+          spec.remove();
+          changed = true;
+        }
+      }
+      if (imp.getNamedImports().length === 0 && !imp.getDefaultImport() && !imp.getNamespaceImport()) {
+        imp.remove();
+        changed = true;
+      }
+    }
+    if (needAttachToRoute) {
+      const target = sf.getImportDeclarations().find((imp) => imp.getModuleSpecifierValue() === TARGET);
+      if (target && !target.getNamedImports().some((s) => s.getName() === 'attachToRoute')) {
+        target.addNamedImport('attachToRoute');
+      } else if (!target) {
+        sf.insertImportDeclaration(0, { moduleSpecifier: TARGET, namedImports: ['attachToRoute'] });
+      }
+    }
   }
 
   // 3) map `const q = createQuery({ … })` (and mutation / json factories) to the config literal

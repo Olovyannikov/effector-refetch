@@ -207,6 +207,51 @@ const q = createJsonQuery({
     expect(out).toMatch(/response:[\s\S]*mapData:[\s\S]*source: \$lang/);
   });
 
+  it('rewrites unused chainRoute(...startChain(q)) to attachToRoute and cleans the imports', () => {
+    const out = run(`
+import { chainRoute } from 'atomic-router';
+import { startChain } from '@farfetched/atomic-router';
+import { createQuery } from '@farfetched/core';
+const postQuery = createQuery({ effect: fx });
+chainRoute({ route: postRoute, ...startChain(postQuery) });
+`);
+    expect(out).toContain('attachToRoute({ route: postRoute, query: postQuery });');
+    expect(out).not.toContain('chainRoute');
+    expect(out).not.toContain('startChain');
+    expect(out).not.toContain('@farfetched/atomic-router');
+    expect(out).not.toContain(`'atomic-router'`);
+    // attachToRoute joined the effector-refetch import
+    expect(out).toMatch(/import\s*{\s*createQuery,\s*attachToRoute\s*}\s*from 'effector-refetch'/);
+  });
+
+  it('freshChain rewrites too, with a note about the freshness gate', () => {
+    const out = run(`
+import { chainRoute } from 'atomic-router';
+import { freshChain } from '@farfetched/atomic-router';
+import { createQuery } from '@farfetched/core';
+const q = createQuery({ effect: fx });
+chainRoute({ route: r, ...freshChain(q) });
+`);
+    expect(out).toContain('attachToRoute({ route: r, query: q });');
+    expect(out).toContain('pair the query with cache({ staleAfter })');
+  });
+
+  it('annotates a USED chained route instead of rewriting (gating semantics differ)', () => {
+    const out = run(`
+import { chainRoute } from 'atomic-router';
+import { startChain } from '@farfetched/atomic-router';
+import { createQuery } from '@farfetched/core';
+const q = createQuery({ effect: fx });
+const loadedRoute = chainRoute({ route: postRoute, ...startChain(q) });
+`);
+    // the chained call survives, with a TODO explaining the difference
+    expect(out).toContain('const loadedRoute = chainRoute({ route: postRoute, ...startChain(q) });');
+    expect(out).toContain('gates the route on the query settling');
+    // imports stay (still referenced), the farfetched router import gets a pointer
+    expect(out).toContain(`from 'atomic-router'`);
+    expect(out).toContain('left-over @farfetched/atomic-router usage');
+  });
+
   it('rewrites the applyBarrier object form to positional and warns on Time strings', () => {
     const out = run(`
 import { createQuery, cache, applyBarrier } from '@farfetched/core';

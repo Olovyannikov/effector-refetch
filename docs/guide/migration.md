@@ -14,7 +14,9 @@ It rewrites `@farfetched/core` (and the `@farfetched/{zod,io-ts,runtypes}` adapt
 `effector-refetch`, turns `retry(q, …)` / `cache(q, …)` / `concurrency(q, { strategy, key })` /
 `timeout(q, { after })` into the inline config of `createQuery` / `createMutation` /
 `createJson*`, migrates the `createJsonQuery` shape (drops `params: declareParams<T>()`, hoists
-`response.mapData` / `response.validate` to the top level), and drops the now-unused operator
+`response.mapData` / `response.validate` to the top level), rewrites unused
+`chainRoute({ route, ...startChain(q) })` wiring from `@farfetched/atomic-router` to
+`attachToRoute({ route, query })`, and drops the now-unused operator
 imports. Names with no equivalent
 (still-referenced `attachOperation`, …) and shapes that differ (`update(q, { by })`,
 `keepFresh({ automatically })`, `Time` strings like `'5min'`) are **kept and annotated** with
