@@ -1,5 +1,32 @@
 # effector-refetch
 
+## 0.17.0
+
+### Minor Changes
+
+- c2c14b4: `createJsonQuery` / `createJsonMutation` accept inline `mapData` and `validate` (same semantics
+  as `createQuery`'s: `mapData` reshapes the validated response before `$data` — with a new
+  `Mapped` type parameter — and `validate` composes after the contract). This also closes the main
+  structural gap when migrating farfetched's `response: { mapData, validate }` configs; the
+  codemod now performs that migration mechanically.
+- 01bae77: New `effector-refetch/openapi` subpath: a `@hey-api/openapi-ts` (0.82.x) plugin that generates a
+  fully typed `createQuery` for every GET operation and `createMutation` for every other method —
+  wired through `createRequestFx` (real AbortSignal forwarded to the SDK call, `throwOnError: true`
+  so `$error` sees real errors) with stable `name: '<operationId>'` for cache namespaces and
+  devtools. Compatible with apicraft, which pins the same hey-api line.
+
+  ```ts
+  // openapi-ts.config.ts
+  import { defineConfig } from '@hey-api/openapi-ts';
+  import { defineConfig as effectorRefetch } from 'effector-refetch/openapi';
+
+  export default defineConfig({
+    input: './openapi.json',
+    output: './src/api',
+    plugins: ['@hey-api/client-fetch', effectorRefetch()],
+  });
+  ```
+
 ## 0.16.0
 
 ### Minor Changes
