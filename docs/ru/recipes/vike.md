@@ -79,15 +79,66 @@ export async function data(pageContext: PageContextServer) {
 }
 ```
 
+## Масштабирование: входные ивенты страниц через `meta`
+
+Версия с `+data` выше — минимальная. Продакшен-раскладка (встречается в реальных Vike +
+effector приложениях) объявляет **два кастомных страничных хука** через `meta` Vike: каждая
+страница несёт свои входные точки модели, а один глобальный `+onBeforeRender` разводит их все:
+
+```ts
+// pages/+config.ts
+export default {
+  passToClient: ['values'],
+  meta: {
+    // серверный вход: SSR-данные страницы
+    pageInitiated: { env: { client: false, server: true } },
+    // клиентский вход: клиентская проводка (persist pickup, запросы с токеном, …)
+    pageStarted: { env: { client: true, server: false } },
+  },
+};
+```
+
+```ts
+// pages/+onBeforeRender.ts — один на всё приложение
+export async function onBeforeRender(pageContext: PageContextServer) {
+  const scope = fork();
+  const { pageInitiated } = pageContext.config;
+  if (pageInitiated) {
+    await allSettled(pageInitiated, {
+      scope,
+      // передавайте УЗКИЙ payload, а не весь pageContext — иначе
+      // PageContextServer протечёт в типы параметров ваших запросов
+      params: { routeParams: pageContext.routeParams, search: pageContext.urlParsed.search },
+    });
+  }
+  return { pageContext: { values: serialize(scope) } };
+}
+```
+
+```ts
+// pages/users/+pageInitiated.ts — на страницу, чистая проводка модели
+export const pageInitiated = createPageInit(); // createEvent<{ routeParams; search }>()
+sample({ clock: pageInitiated, fn: ({ search }) => ({ q: search.q ?? '' }), target: usersQuery.start });
+```
+
+`pageStarted` вызывается из небольшого клиентского провайдера на каждую навигацию — это место
+для клиентских забот (например, `persist(..., { pickup: pageStarted })` из `effector-storage`
+или запросов, чей токен авторизации живёт в `localStorage`).
+
 ## Примечания
 
-- **Scope на страницу**: в отличие от `@effector/next` (который мержит values в один клиентский
-  scope), этот минимальный сетап ре-форкает scope на каждую страницу — клиентское состояние вне
-  сериализованных values сбрасывается при навигации. Если нужен постоянный клиентский scope,
-  держите его синглтоном модуля и мержьте values через `hydrate` вместо ре-форка.
-- **`+data` остаётся серверным** по умолчанию — в нём могут жить API-ключи и клиенты БД. Если
-  страница должна фетчить на клиенте при навигации, запускайте запрос из клиентского ивента, а
-  не из `+data`.
+- **Scope на страницу vs постоянный клиентский scope**: минимальный сетап ре-форкает scope на
+  каждую страницу — клиентское состояние вне сериализованных values сбрасывается при навигации.
+  Постоянный синглтон-scope (один `fork()` на сессию, новые values инжектятся на каждую
+  навигацию) — это то, что для Next реализует `@effector/next`; у Vike поддерживаемого
+  эквивалента нет, и приложения вендорят эти внутренности руками. Если пойдёте этим путём:
+  публичные сториз effector-refetch уже несут явные sid, так что состояние библиотеки
+  гидрируется без effector babel/SWC-плагина — sid нужны только вашим собственным сторам.
+- **Узкие payload'ы.** Не скармливайте входным ивентам весь `pageContext`: он утекает в
+  `query.start`, и серверный тип контекста оказывается в параметрах ваших эффектов.
+- **`+data` / `+onBeforeRender` остаются серверными** по умолчанию — там могут жить API-ключи и
+  клиенты БД. Если страница должна фетчить на клиенте при навигации — запускайте запрос из
+  клиентского `pageStarted`.
 - **Кэш-слой** (`$queryCache` + `dehydrate`/`hydrate`) компонуется ровно как в
-  [SSR и тестах](/ru/recipes/ssr-and-testing) — положите адаптер в fork внутри `+data` и
-  отправьте `dehydrate(cache)` рядом с `values`.
+  [SSR и тестах](/ru/recipes/ssr-and-testing) — положите адаптер в серверный fork и отправьте
+  `dehydrate(cache)` рядом с `values`.

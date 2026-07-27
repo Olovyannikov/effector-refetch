@@ -79,15 +79,66 @@ export async function data(pageContext: PageContextServer) {
 }
 ```
 
+## Scaling up: per-page entry events via `meta`
+
+The `+data` version above is the minimal one. A production layout (seen in real Vike + effector
+apps) declares **two custom page hooks** through Vike's `meta`, so every page ships its own
+model entry points and one global `+onBeforeRender` wires them all:
+
+```ts
+// pages/+config.ts
+export default {
+  passToClient: ['values'],
+  meta: {
+    // server entry: SSR data for the page
+    pageInitiated: { env: { client: false, server: true } },
+    // client entry: client-only wiring (persist pickup, token-authed queries, …)
+    pageStarted: { env: { client: true, server: false } },
+  },
+};
+```
+
+```ts
+// pages/+onBeforeRender.ts — one for the whole app
+export async function onBeforeRender(pageContext: PageContextServer) {
+  const scope = fork();
+  const { pageInitiated } = pageContext.config;
+  if (pageInitiated) {
+    await allSettled(pageInitiated, {
+      scope,
+      // pass a NARROW payload, not the whole pageContext — otherwise
+      // PageContextServer leaks into your queries' params types
+      params: { routeParams: pageContext.routeParams, search: pageContext.urlParsed.search },
+    });
+  }
+  return { pageContext: { values: serialize(scope) } };
+}
+```
+
+```ts
+// pages/users/+pageInitiated.ts — per page, pure model wiring
+export const pageInitiated = createPageInit(); // createEvent<{ routeParams; search }>()
+sample({ clock: pageInitiated, fn: ({ search }) => ({ q: search.q ?? '' }), target: usersQuery.start });
+```
+
+`pageStarted` is fired from a small client provider on each navigation — the place for
+client-only concerns (e.g. `effector-storage`'s `persist(..., { pickup: pageStarted })`, or
+queries whose auth token lives in `localStorage`).
+
 ## Notes
 
-- **Per-page scope**: unlike `@effector/next` (which merges values into one client scope), this
-  minimal setup re-forks per page — client-only state living outside the serialized values
-  resets on navigation. If you need a persistent client scope, keep it in a module singleton
-  and `hydrate`-merge values into it instead of re-forking.
-- **`+data` stays server-side** by default — your API keys and DB clients can live in it. If a
-  page should fetch client-side on navigation instead, run the query from a client event rather
-  than `+data`.
+- **Per-page scope vs a persistent client scope**: the minimal setup re-forks per page —
+  client-only state outside the serialized values resets on navigation. A persistent singleton
+  client scope (one `fork()` for the whole session, new values injected on each navigation) is
+  what `@effector/next` implements for Next — Vike has no maintained equivalent, so apps vendor
+  those scope-injection internals by hand. If you go that way, effector-refetch's public stores
+  already carry explicit sids, so the library's state hydrates without the effector babel/SWC
+  plugin — only your own stores need sids.
+- **Narrow payloads.** Don't feed the whole `pageContext` into entry events: it flows into
+  `query.start` and the server-only context type leaks into your effects' params.
+- **`+data` / `+onBeforeRender` stay server-side** by default — your API keys and DB clients
+  can live there. If a page should fetch client-side on navigation instead, run the query from
+  the client `pageStarted` event.
 - The **cache layer** (`$queryCache` + `dehydrate`/`hydrate`) composes exactly as in
-  [SSR & testing](/recipes/ssr-and-testing) — put the adapter into the `+data` fork and ship
+  [SSR & testing](/recipes/ssr-and-testing) — put the adapter into the server fork and ship
   `dehydrate(cache)` alongside `values`.
