@@ -272,7 +272,30 @@ export interface QueryFinished<Params, Result, Error> {
  * Declared as a type alias (not an interface) so it stays assignable to the
  * `Record<string, Unit>` shape that effector's `useUnit` overloads expect.
  */
+/**
+ * The whole query state as ONE discriminated union (reatom-inspired): matching on
+ * `status` narrows the other fields — `'done'` guarantees `data: Data` (non-null),
+ * `'fail'` guarantees `error: Error`. The flags ride along in every variant.
+ */
+export type QueryState<Params, Data, Error> = {
+  pending: boolean;
+  stale: boolean;
+  isPlaceholderData: boolean;
+  isInitialLoading: boolean;
+  isRefetching: boolean;
+  enabled: boolean;
+  params: Params | null;
+} & (
+  | { status: 'initial'; data: Data | null; error: null }
+  /** `error` may be a surfaced intermediate retry failure (suppressIntermediateErrors: false). */
+  | { status: 'pending'; data: Data | null; error: Error | null }
+  | { status: 'done'; data: Data; error: null }
+  | { status: 'fail'; data: Data | null; error: Error }
+);
+
 export type QueryUnitShape<Params, Mapped, Error> = {
+  /** The whole state as one discriminated union — see {@link QueryState}. */
+  state: Store<QueryState<Params, Mapped, Error>>;
   data: Store<Mapped | null>;
   error: Store<Error | null>;
   status: Store<QueryStatus>;
@@ -314,6 +337,12 @@ export interface Query<Params, Result, Error, Mapped = Result> {
   cancel: EventCallable<void>;
 
   // state
+  /**
+   * The whole state as ONE discriminated union: `if (state.status === 'done')` narrows
+   * `state.data` to non-null `Data`, `'fail'` narrows `state.error`. Derived from the
+   * individual stores below — subscribe to whichever granularity fits.
+   */
+  $state: Store<QueryState<Params, Mapped, Error>>;
   $data: Store<Mapped | null>;
   $error: Store<Error | null>;
   $status: Store<QueryStatus>;

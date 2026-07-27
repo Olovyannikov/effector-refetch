@@ -54,7 +54,27 @@
   `llms.txt` и скилл для Claude Code.
 - **Биндинги и Suspense.** `useUnit(query)` плюс хелперы `useQuery` для React / Vue / Solid и
   `useSuspenseQuery` для React Suspense.
-- **Маленькое ядро без зависимостей** (~7 КБ) в активной разработке к 1.0.
+- **Конкурентность всерьёз.** Помимо общих TAKE_LATEST/FIRST/EVERY: **полосы**
+  (`concurrency: { key }` — вытеснение в рамках строки без отмены соседей) и **`QUEUE`**
+  (строго последовательные прогоны — записи, которым нельзя перемешиваться).
+- **Всегда известно, ПОЧЕМУ прогон закончился.** `aborted` несёт типизированную причину
+  (`'cancelled' | 'superseded' | 'take-first-busy' | 'disabled'`), и она же едет на
+  `AbortSignal` рана (`signal.reason`).
+- **Императивно, когда нужно.** `await query.startAsync(params)` /
+  `mutation.mutateAsync(...)` — настоящие Effects, `useUnit` биндит их scope-корректно.
+- **Runtime-дефолты.** `$queryDefaults` — переопредели `retry`/`timeout`/`concurrency`/`staleAfter`
+  на `fork` (тесты, SSR), не трогая определения запросов.
+- **`debounce` и `fallback` инлайном.** Честный до-сетевой debounce (композится с полосами) и
+  восстановление финальной ошибки в данные — без ручной проводки.
+- **Состояние одним объектом.** `$state` — дискриминированный union: `status === 'done'` сужает
+  `data` до non-null, `'fail'` сужает `error` — рядом с гранулярными сторами.
+- **Оптимистичные апдейты, переживающие рефетчи.** `update` / `optimisticUpdate` с параллельными
+  слоями и перебазированием на свежие данные; плюс кросс-модульный `invalidateTag`.
+- **Поэтапная миграция.** `effector-refetch/tanstack` и `effector-refetch/apollo` прогоняют
+  хэндлер через кэш внешнего клиента на время перехода.
+- **Устойчивость по умолчанию.** Бросающие пользовательские колбэки (`mapParams`/`mapData`/…)
+  конвертируются в поток ошибок, а не убивают распространение.
+- **Маленькое ядро без зависимостей** (~12 КБ) в активной разработке к 1.0.
 
 ## Бок о бок
 
@@ -75,6 +95,15 @@
 | devtools              | `@farfetched/dev-tools`                                       | визуальные панели (React/Vue/Solid) + поток интроспекции                                      |
 | биндинги              | `@farfetched/solid` + `useUnit`                               | react / vue / solid + `useQuery` + `useSuspenseQuery`                                         |
 | SSR                   | `fork` / `allSettled` (in-memory кэш глобален)                | `fork` / `allSettled` + scope-изолированный кэш (`$queryCache`)                               |
+| конкурентность        | TAKE_LATEST / FIRST / EVERY                                   | + полосы (`key`) + `QUEUE` (сериализация)                                                     |
+| причины абортов       | —                                                             | типизированы на `aborted` + `signal.reason`                                                   |
+| императивный await    | —                                                             | `startAsync` / `mutateAsync` (настоящие Effects)                                              |
+| runtime-дефолты       | —                                                             | `$queryDefaults` (на fork)                                                                    |
+| debounce / fallback   | руками                                                        | инлайн-опции + операторы                                                                      |
+| оптимистичные апдейты | `update`                                                      | `update` + `optimisticUpdate` (слои, перебазирование)                                         |
+| tag-инвалидация       | —                                                             | `invalidateTag` (кросс-модульно)                                                              |
+| форма состояния       | отдельные сторы                                               | гранулярные сторы **и** union `$state`                                                        |
+| interop / миграция    | —                                                             | `effector-refetch/tanstack`, `effector-refetch/apollo`                                        |
 | зрелость / экосистема | **больше, проверена в бою**                                   | молодой, активно развивается                                                                  |
 
 ## SSR бок о бок

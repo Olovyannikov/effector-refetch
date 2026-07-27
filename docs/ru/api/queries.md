@@ -69,6 +69,28 @@ const query = createQuery({
 считаются `false`.
 :::
 
+## Всё состояние одним объектом: `$state`
+
+`$state` — **дискриминированный union**: матчинг по `status` сужает остальные поля,
+и после проверки статуса больше не нужно `data?.`:
+
+```ts
+const state = useUnit(query.$state); // или scope.getState(query.$state)
+
+if (state.status === 'done') {
+  state.data; // Data — non-null, без каста
+  state.error; // null — статически
+}
+if (state.status === 'fail') {
+  state.error; // Error — non-null
+  state.data; // Data | null — stale-данные могут остаться
+}
+```
+
+Флаги (`pending`, `stale`, `isInitialLoading`, `isRefetching`, `isPlaceholderData`,
+`enabled`, `params`) едут в каждом варианте. Выводится из гранулярных сторов —
+подписывайтесь на ту гранулярность, которая нужна.
+
 ## Императивный запуск: `startAsync`
 
 `query.startAsync` — настоящий `Effect<Params, Data>`: запустить и дождаться исхода:

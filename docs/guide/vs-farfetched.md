@@ -18,8 +18,9 @@ Be aware of these before switching:
 - **Sourced parameters everywhere.** In farfetched almost _every_ field of _every_ operator can be a
   `Store`/source. effector-refetch sources the declarative-HTTP fields (`url` / `query` / `body` /
   `headers` in `createJsonQuery` / `createJsonMutation`) plus a curated config set — `enabled`,
-  `concurrency`, `retry.times`, `cache.staleAfter`, `refetchInterval`, `timeout` — and expects the
-  rest to come from the effect's params (often via `sample`). Closer than it was, but still narrower.
+  `concurrency`, `retry.times`, `cache.staleAfter`, `refetchInterval`, `timeout`, `debounce` — plus
+  the run-time `$queryDefaults` layer for per-fork overrides — and expects the rest to come from
+  the effect's params (often via `sample`). Closer than it was, but still narrower.
 - **A couple of named validation adapters.** farfetched ships dedicated
   `@farfetched/{runtypes,io-ts,superstruct,typed-contracts,zod}`. effector-refetch now matches
   `runtypesContract`, `ioTsContract`, `zodContract`, plus `standardSchemaContract` (covers any
@@ -52,7 +53,27 @@ Be aware of these before switching:
   an `llms.txt` + a Claude Code agent skill.
 - **Bindings & Suspense.** `useUnit(query)` plus `useQuery` helpers for React / Vue / Solid, and
   `useSuspenseQuery` for React Suspense.
-- **Small, dependency-free core** (~7 kB) under active development toward 1.0.
+- **Concurrency, seriously.** Beyond the shared TAKE_LATEST/FIRST/EVERY: **lanes**
+  (`concurrency: { key }` — per-row supersede without cancelling neighbours) and **`QUEUE`**
+  (strictly serialized runs — writes that must not interleave).
+- **You always know WHY a run ended.** `aborted` carries a typed reason
+  (`'cancelled' | 'superseded' | 'take-first-busy' | 'disabled'`) and the same reason rides on
+  the run's `AbortSignal` (`signal.reason`).
+- **Imperative when you need it.** `await query.startAsync(params)` /
+  `mutation.mutateAsync(...)` — real Effects, so `useUnit` binds them scope-correctly.
+- **Run-time defaults.** `$queryDefaults` — override `retry`/`timeout`/`concurrency`/`staleAfter`
+  per `fork` (tests, SSR) without touching query definitions.
+- **`debounce` and `fallback` inline.** True pre-network debounce (composes with lanes) and
+  recover-final-failure-into-data — no hand-rolled wiring.
+- **One-object state.** `$state` is a discriminated union: `status === 'done'` narrows
+  `data` to non-null, `'fail'` narrows `error` — alongside the granular stores.
+- **Optimistic updates that survive refetches.** `update` / `optimisticUpdate` with parallel
+  layers and re-basing onto fresh fetches; plus cross-module `invalidateTag`.
+- **Incremental migration.** `effector-refetch/tanstack` and `effector-refetch/apollo` route a
+  handler through an external client's cache during a transition.
+- **Resilience by default.** Throwing user callbacks (`mapParams`/`mapData`/`fallback`/…) are
+  contained into the failure flow instead of killing the propagation.
+- **Small, dependency-free core** (~12 kB) under active development toward 1.0.
 
 ## Side by side
 
@@ -73,6 +94,15 @@ Be aware of these before switching:
 | devtools             | `@farfetched/dev-tools`                                       | visual panels (React/Vue/Solid) + introspection stream                                       |
 | bindings             | `@farfetched/solid` + `useUnit`                               | react / vue / solid + `useQuery` + `useSuspenseQuery`                                        |
 | SSR                  | `fork` / `allSettled` (in-memory cache is global)             | `fork` / `allSettled` + scope-isolated cache (`$queryCache`)                                 |
+| concurrency          | TAKE_LATEST / FIRST / EVERY                                   | + lanes (`key`) + `QUEUE` (serialized)                                                       |
+| abort reasons        | —                                                             | typed on `aborted` + `signal.reason`                                                         |
+| imperative await     | —                                                             | `startAsync` / `mutateAsync` (real Effects)                                                  |
+| runtime defaults     | —                                                             | `$queryDefaults` (per-fork)                                                                  |
+| debounce / fallback  | build by hand                                                 | inline options + operators                                                                   |
+| optimistic updates   | `update`                                                      | `update` + `optimisticUpdate` (parallel layers, re-basing)                                   |
+| tag invalidation     | —                                                             | `invalidateTag` (cross-module)                                                               |
+| state shape          | separate stores                                               | granular stores **and** `$state` discriminated union                                         |
+| interop / migration  | —                                                             | `effector-refetch/tanstack`, `effector-refetch/apollo`                                       |
 | maturity / ecosystem | **larger, battle-tested**                                     | young, actively developed                                                                    |
 
 ## SSR side by side

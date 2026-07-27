@@ -106,6 +106,7 @@ describe('public API surface', () => {
     }
     expect(is.effect(query.startAsync), 'startAsync').toBe(true);
     for (const key of [
+      '$state',
       '$data',
       '$error',
       '$status',
