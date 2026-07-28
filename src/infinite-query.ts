@@ -12,6 +12,7 @@ import {
 import { createQuery } from './create-query';
 import { invalidateTag, matchesTag } from './invalidate';
 import type { ConcurrencyStrategy, QueryStatus } from './types';
+import type { Barrier } from './barrier';
 
 export interface GetNextPageParamCtx<PageParam, Page> {
   lastPage: Page;
@@ -41,6 +42,7 @@ interface BaseInfiniteConfig<Params, PageParam, Page> {
   name?: string;
   /** Label the public/internal units for the inspector even without a `name`. */
   debug?: boolean;
+  barrier?: Barrier;
 }
 
 export interface CreateInfiniteQueryConfig<Params, PageParam, Page> extends BaseInfiniteConfig<
@@ -175,6 +177,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     concurrency: config.concurrency ?? 'TAKE_LATEST',
     name: config.name ? `${config.name}.page` : undefined,
     debug: config.debug,
+    barrier: config.barrier,
   });
 
   const start = createEvent<Params>(evName('start'));
