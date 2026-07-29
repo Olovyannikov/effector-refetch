@@ -1,5 +1,11 @@
 # effector-refetch
 
+## 0.21.0
+
+### Minor Changes
+
+- 6feb6db: Add `barrier` option to `createInfiniteQuery` — gates `start`, `fetchNext`, `fetchPrevious`, and `refetchAll` on a barrier (e.g. token refresh).
+
 ## 0.20.0
 
 ### Minor Changes
