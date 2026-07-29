@@ -66,3 +66,22 @@ side-канал, так что загрузка страниц остаётся 
 :::
 
 Построено на `createQuery`, поэтому загрузка страницы наследует concurrency и отмену.
+
+### Барьер
+
+Передайте `barrier` (из `createBarrier`), чтобы гейтить все запросы — `start`,
+`fetchNext`, `fetchPrevious` и `refetchAll` ждут, пока барьер залочен (например,
+во время обновления токена):
+
+```ts
+import { createBarrier, createInfiniteQuery } from 'effector-refetch';
+
+const authBarrier = createBarrier({ perform: refreshTokenFx });
+
+const feed = createInfiniteQuery({
+  effect: fetchPageFx,
+  initialPageParam: 0,
+  getNextPageParam: ({ lastPage }) => lastPage.next ?? null,
+  barrier: authBarrier,
+});
+```
