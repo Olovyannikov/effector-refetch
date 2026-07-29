@@ -65,4 +65,23 @@ The page effect is an `Effect<{ params, pageParam }, Page>` — a regular
 reaches it through a synchronous side channel, so page fetches stay cancellable).
 :::
 
+### Barrier
+
+Pass a `barrier` (from `createBarrier`) to gate all fetches — `start`, `fetchNext`,
+`fetchPrevious`, and `refetchAll` wait while the barrier is locked (e.g. during a
+token refresh):
+
+```ts
+import { createBarrier, createInfiniteQuery } from 'effector-refetch';
+
+const authBarrier = createBarrier({ perform: refreshTokenFx });
+
+const feed = createInfiniteQuery({
+  effect: fetchPageFx,
+  initialPageParam: 0,
+  getNextPageParam: ({ lastPage }) => lastPage.next ?? null,
+  barrier: authBarrier,
+});
+```
+
 Built on `createQuery`, so the page fetch inherits concurrency and cancellation.

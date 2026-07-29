@@ -42,6 +42,7 @@ interface BaseInfiniteConfig<Params, PageParam, Page> {
   name?: string;
   /** Label the public/internal units for the inspector even without a `name`. */
   debug?: boolean;
+  /** Gate execution on a barrier — fetches wait while the barrier is locked (e.g. token refresh). */
   barrier?: Barrier;
 }
 
@@ -290,6 +291,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   >({
     name: evName('refetchAllFx'),
     handler: async ({ params, pageParams, token }) => {
+      if (config.barrier) await config.barrier.__.wait();
       const pages: Page[] = [];
       for (const pageParam of pageParams) {
         // sequential, straight through the effect (not pageQuery) — no intermediate
