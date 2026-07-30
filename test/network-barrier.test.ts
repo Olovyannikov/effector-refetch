@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { createEffect } from 'effector';
+import { allSettled, createEffect, fork } from 'effector';
 import { createQuery, createNetworkBarrier } from '../src';
 
 const goOffline = () => window.dispatchEvent(new Event('offline'));
@@ -55,5 +55,33 @@ describe('createNetworkBarrier', () => {
     goOffline();
     await tick();
     expect(net.$online.getState()).toBe(true); // ignored after stop
+  });
+
+  it('with a scope: the DOM listeners lock/unlock inside it', async () => {
+    const scope = fork();
+    const net = createNetworkBarrier({ scope });
+
+    let calls = 0;
+    const fx = createEffect(async (id: number) => {
+      calls++;
+      return `v${id}`;
+    });
+    const query = createQuery({ effect: fx, barrier: net });
+
+    goOffline();
+    await tick();
+    expect(scope.getState(net.$online)).toBe(false);
+
+    const run = allSettled(query.start, { scope, params: 1 });
+    await tick(10);
+    expect(calls).toBe(0); // gated inside the scope
+    expect(scope.getState(query.$pending)).toBe(true);
+
+    goOnline();
+    await run;
+    expect(calls).toBe(1);
+    expect(scope.getState(query.$data)).toBe('v1');
+
+    net.stop();
   });
 });

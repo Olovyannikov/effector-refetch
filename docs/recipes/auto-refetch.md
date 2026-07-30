@@ -58,6 +58,14 @@ offline.stop(); // detach the online/offline listeners on teardown
 A run started while offline sits in `pending` (the effect body isn't entered) until the network
 returns. Browser-only — on the server the barrier stays open (online).
 
+In a scoped app (`@effector/next`, any `fork()` setup) pass the scope — the `online`/`offline`
+listeners fire outside effector's call stack, so otherwise the lock lands on the scope-less app
+and the forked queries keep running:
+
+```ts
+const offline = createNetworkBarrier({ scope });
+```
+
 ## Refetch on source change — `keepFresh`
 
 Keep a query fresh relative to external state (filters, locale, viewer): `keepFresh` refetches it

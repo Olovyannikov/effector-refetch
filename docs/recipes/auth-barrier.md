@@ -106,7 +106,72 @@ const q = createQuery({ effect: fx, barrier: authBarrier });
 applyBarrier(existingQuery, authBarrier);
 ```
 
-::: warning Client-side
-The barrier reads the no-scope store, so it's meant for a single running app, not
-per-`fork` isolation. (Request pausing rarely applies during SSR.)
+## Lock it from the failure, not from `finished.fail`
+
+`finished.fail` only fires for the **final** failure — after the retries are exhausted. A
+lock driven by it arrives too late: the retry has already gone out with the stale token.
+Drive the lock from the raw effect instead (`fx.failData`), which fires on the very first
+`401`:
+
+```ts
+// ✅ fires on the first 401, before the retry is scheduled
+sample({ clock: getProfileFx.failData, filter: (e) => e.status === 401, target: authBarrier.lock });
+
+// ❌ only after every retry has already failed
+sample({
+  clock: profile.finished.fail,
+  filter: ({ error }) => error.status === 401,
+  target: authBarrier.lock,
+});
+```
+
+An HTTP layer works just as well — lock where you see the `401`, before rethrowing. Because
+that code runs outside effector's call stack, bind it to the scope:
+
+```ts
+import { scopeBind } from 'effector';
+
+async function request(url: string) {
+  const response = await fetch(url);
+  if (response.status === 401) {
+    scopeBind(authBarrier.lock, { safe: true })();
+    throw Object.assign(new Error('Unauthorized'), { status: 401 });
+  }
+  return response.json();
+}
+```
+
+## Infinite queries
+
+`createInfiniteQuery` takes `barrier` and `retry`, so paginated feeds get the same flow:
+`start`, `fetchNext` and `fetchPrevious` wait while the barrier is locked, and a retried
+page fetch waits too — that is what replays the `401` page after the refresh.
+
+```ts
+const feed = createInfiniteQuery({
+  effect: fetchPageFx,
+  initialPageParam: 0,
+  getNextPageParam: ({ lastPage }) => lastPage.next,
+  barrier: authBarrier,
+  retry: { times: 1, filter: ({ error }) => error.status === 401 },
+});
+```
+
+`refetchAll` is the exception: it reloads the window straight through the effect, outside
+the page query, so it is **not** retried. It does wait on the barrier before every page, so
+a refresh that starts mid-window holds the remaining pages — but a page that fails leaves
+the previous window on screen and surfaces the error in `$error` / `$status`. Re-trigger it
+yourself if you want a second pass.
+
+## Scope and SSR
+
+The barrier is fork-safe: both the lock flag and the queue of waiting runs live in stores,
+so concurrent scopes — SSR requests, tests — block and release independently. Locking one
+scope leaves the others running.
+
+::: warning Locking from outside effector
+A `lock()` called from an HTTP layer, an SDK callback or anything else outside effector's
+call stack lands on the **scope-less** app, and scoped queries never see it. Wrap it in
+`scopeBind(barrier.lock, { safe: true })` (as above), or drive the lock declaratively with
+`sample`.
 :::

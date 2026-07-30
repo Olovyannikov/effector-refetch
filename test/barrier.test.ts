@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allSettled, createEffect, createStore, fork, sample } from 'effector';
+import { allSettled, attach, createEffect, createStore, fork, sample, type Effect } from 'effector';
 import { applyBarrier, createBarrier, createQuery, createQueryFactory } from '../src';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -175,5 +175,109 @@ describe('createBarrier', () => {
     // by the post-barrier currency re-gate, so it never performs its request
     expect(seen).toEqual([2]);
     expect(query.$data.getState()).toBe(2);
+  });
+});
+
+describe('createBarrier is fork-isolated', () => {
+  it('locking one scope leaves other scopes (and the scope-less app) running', async () => {
+    const seen: string[] = [];
+    const fx = createEffect(async (p: string) => {
+      seen.push(p);
+      return p;
+    });
+    const barrier = createBarrier();
+    const query = createQuery({ effect: fx, barrier });
+
+    const a = fork();
+    const b = fork();
+
+    await allSettled(barrier.lock, { scope: a });
+    expect(a.getState(barrier.$locked)).toBe(true);
+    expect(b.getState(barrier.$locked)).toBe(false);
+    expect(barrier.$locked.getState()).toBe(false);
+
+    const blocked = allSettled(query.start, { scope: a, params: 'a' });
+    // b is untouched by a's lock
+    await allSettled(query.start, { scope: b, params: 'b' });
+    expect(seen).toEqual(['b']);
+    expect(b.getState(query.$data)).toBe('b');
+    expect(a.getState(query.$pending)).toBe(true);
+
+    await allSettled(barrier.unlock, { scope: a });
+    await blocked;
+    expect(seen).toEqual(['b', 'a']);
+    expect(a.getState(query.$data)).toBe('a');
+  });
+
+  it('unlocking one scope does not release a run waiting in another', async () => {
+    const seen: string[] = [];
+    const fx = createEffect(async (p: string) => {
+      seen.push(p);
+      return p;
+    });
+    const barrier = createBarrier();
+    const query = createQuery({ effect: fx, barrier });
+
+    const a = fork();
+    const b = fork();
+    await allSettled(barrier.lock, { scope: a });
+    await allSettled(barrier.lock, { scope: b });
+
+    const runA = allSettled(query.start, { scope: a, params: 'a' });
+    const runB = allSettled(query.start, { scope: b, params: 'b' });
+    for (let i = 0; i < 5; i++) await tick();
+    expect(seen).toEqual([]);
+
+    await allSettled(barrier.unlock, { scope: a });
+    await runA;
+    expect(seen).toEqual(['a']); // b's run is still parked behind its own lock
+    expect(b.getState(query.$pending)).toBe(true);
+
+    await allSettled(barrier.unlock, { scope: b });
+    await runB;
+    expect(seen).toEqual(['a', 'b']);
+  });
+
+  it('perform runs per scope', async () => {
+    const refreshedIn: string[] = [];
+    const $tag = createStore('none');
+    const refreshFx = attach({
+      source: $tag,
+      effect: async (tag: string) => {
+        refreshedIn.push(tag);
+      },
+    });
+    const barrier = createBarrier({ perform: refreshFx as unknown as Effect<void, unknown> });
+
+    const a = fork({ values: [[$tag, 'a']] });
+    const b = fork({ values: [[$tag, 'b']] });
+
+    await allSettled(barrier.lock, { scope: a });
+    expect(refreshedIn).toEqual(['a']);
+    expect(a.getState(barrier.$locked)).toBe(false); // reopened when perform settled
+    expect(b.getState(barrier.$locked)).toBe(false);
+
+    await allSettled(barrier.lock, { scope: b });
+    expect(refreshedIn).toEqual(['a', 'b']);
+  });
+
+  it('still works without fork (scope-less app)', async () => {
+    const seen: number[] = [];
+    const fx = createEffect(async (p: number) => {
+      seen.push(p);
+      return p;
+    });
+    const barrier = createBarrier();
+    const query = createQuery({ effect: fx, barrier });
+
+    barrier.lock();
+    query.start(1);
+    for (let i = 0; i < 5; i++) await tick();
+    expect(seen).toEqual([]);
+
+    barrier.unlock();
+    for (let i = 0; i < 5; i++) await tick();
+    expect(seen).toEqual([1]);
+    expect(query.$data.getState()).toBe(1);
   });
 });

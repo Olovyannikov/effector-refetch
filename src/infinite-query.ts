@@ -4,6 +4,7 @@ import {
   createEvent,
   createStore,
   sample,
+  scopeBind,
   type Effect,
   type EventCallable,
   type Event,
@@ -11,7 +12,7 @@ import {
 } from 'effector';
 import { createQuery } from './create-query';
 import { invalidateTag, matchesTag } from './invalidate';
-import type { ConcurrencyStrategy, QueryStatus } from './types';
+import type { ConcurrencyStrategy, QueryStatus, RetryConfig } from './types';
 import type { Barrier } from './barrier';
 
 export interface GetNextPageParamCtx<PageParam, Page> {
@@ -28,7 +29,7 @@ export interface GetPreviousPageParamCtx<PageParam, Page> {
   allPageParams: PageParam[];
 }
 
-interface BaseInfiniteConfig<Params, PageParam, Page> {
+interface BaseInfiniteConfig<Params, PageParam, Page, Error = unknown> {
   initialPageParam: PageParam;
   /** Return the next page param, or `null` / `undefined` when there are no more pages. */
   getNextPageParam: (ctx: GetNextPageParamCtx<PageParam, Page>) => PageParam | null | undefined;
@@ -37,6 +38,15 @@ interface BaseInfiniteConfig<Params, PageParam, Page> {
   /** Cap accumulated pages — drops from the opposite end when exceeded. */
   maxPages?: number;
   concurrency?: ConcurrencyStrategy;
+  /**
+   * Retry a failed page fetch (`start` / `fetchNext` / `fetchPrevious`), same shape as
+   * `createQuery`'s. With a `barrier`, a retried attempt waits for it to open — that is
+   * what turns a 401 into "refresh the token, then load the page again". `refetchAll`
+   * runs outside the page query and is NOT retried.
+   */
+  retry?: number | RetryConfig<Error>;
+  /** Per-attempt deadline (ms) for a page fetch; exceeding it fails the attempt (retryable). 0 = off. */
+  timeout?: number | Store<number>;
   /** Invalidation tags: a matching `invalidateTag(...)` triggers `refetchAll`. */
   tags?: string[];
   name?: string;
@@ -46,19 +56,21 @@ interface BaseInfiniteConfig<Params, PageParam, Page> {
   barrier?: Barrier;
 }
 
-export interface CreateInfiniteQueryConfig<Params, PageParam, Page> extends BaseInfiniteConfig<
+export interface CreateInfiniteQueryConfig<
   Params,
   PageParam,
-  Page
-> {
+  Page,
+  Error = unknown,
+> extends BaseInfiniteConfig<Params, PageParam, Page, Error> {
   /** Effect fetching a single page. */
   effect: Effect<{ params: Params; pageParam: PageParam }, Page, unknown>;
 }
-export interface CreateInfiniteQueryHandlerConfig<Params, PageParam, Page> extends BaseInfiniteConfig<
+export interface CreateInfiniteQueryHandlerConfig<
   Params,
   PageParam,
-  Page
-> {
+  Page,
+  Error = unknown,
+> extends BaseInfiniteConfig<Params, PageParam, Page, Error> {
   handler: (ctx: { params: Params; pageParam: PageParam }) => Promise<Page> | Page;
 }
 
@@ -144,8 +156,8 @@ let infiniteCounter = 0;
 
 export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   config:
-    | CreateInfiniteQueryConfig<Params, PageParam, Page>
-    | CreateInfiniteQueryHandlerConfig<Params, PageParam, Page>,
+    | CreateInfiniteQueryConfig<Params, PageParam, Page, Error>
+    | CreateInfiniteQueryHandlerConfig<Params, PageParam, Page, Error>,
 ): InfiniteQuery<Params, PageParam, Page, Error> {
   const { initialPageParam, getNextPageParam, getPreviousPageParam, maxPages } = config;
 
@@ -179,6 +191,8 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     name: config.name ? `${config.name}.page` : undefined,
     debug: config.debug,
     barrier: config.barrier,
+    retry: config.retry,
+    timeout: config.timeout,
   });
 
   const start = createEvent<Params>(evName('start'));
@@ -291,12 +305,28 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   >({
     name: evName('refetchAllFx'),
     handler: async ({ params, pageParams, token }) => {
-      if (config.barrier) await config.barrier.__.wait();
+      // bind the wait to THIS scope while the handler is still synchronous — after the
+      // first `await` the scope context is gone, and later iterations would wait on the
+      // scope-less barrier instead of their own
+      const waitForBarrier = config.barrier ? scopeBind(config.barrier.__.waitFx, { safe: true }) : null;
+      // same reason: bind the page effect now, so every page after the first still runs
+      // in this scope (its own `source` stores, `$pending`, SSR isolation)
+      const fetchOne =
+        'effect' in config
+          ? (() => {
+              const bound = scopeBind(config.effect, { safe: true });
+              return (pageParam: PageParam) => bound({ params, pageParam }) as Promise<Page>;
+            })()
+          : (pageParam: PageParam) => call({ params, pageParam, mode: 'append' });
       const pages: Page[] = [];
       for (const pageParam of pageParams) {
+        // gate EVERY page, not just the first: a barrier that closes mid-window (a 401
+        // on page 3, another query starting a token refresh) must hold the rest of the
+        // reload until it reopens, instead of firing them with a stale token
+        if (waitForBarrier) await waitForBarrier();
         // sequential, straight through the effect (not pageQuery) — no intermediate
         // window states, no TAKE_LATEST self-cancellation
-        pages.push(await call({ params, pageParam, mode: 'append' }));
+        pages.push(await fetchOne(pageParam));
       }
       return { pages, pageParams, token };
     },

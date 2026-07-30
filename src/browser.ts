@@ -76,6 +76,16 @@ export interface NetworkBarrier extends Barrier {
   stop: () => void;
 }
 
+export interface CreateNetworkBarrierConfig {
+  /**
+   * Lock/unlock inside this scope. The `online`/`offline` listeners fire outside
+   * effector's call stack, so without it they target the scope-less app and queries
+   * running in a fork never pause. Required in scoped apps (`@effector/next`, SSR-style
+   * `fork()` setups).
+   */
+  scope?: Scope;
+}
+
 /**
  * A {@link Barrier} that locks while the browser is **offline** and unlocks on
  * reconnect. Gate queries with it (the `barrier` option, or a factory default)
@@ -87,15 +97,20 @@ export interface NetworkBarrier extends Barrier {
  *   // offline.$online drives a banner; offline.stop() on teardown
  *
  * Browser only (reads `navigator.onLine` + window events); on the server it
- * stays open (online). Client-side mechanism — meant for a single running app.
+ * stays open (online). In a scoped app pass the scope — the DOM listeners fire
+ * outside effector's call stack, so otherwise the lock lands on the scope-less
+ * app and forked queries keep running: `createNetworkBarrier({ scope })`.
  */
-export function createNetworkBarrier(): NetworkBarrier {
+export function createNetworkBarrier(config: CreateNetworkBarrierConfig = {}): NetworkBarrier {
   const barrier = createBarrier();
+  const { scope } = config;
+  // `allSettled` (not a raw call) keeps the fork context across the waiting runs it releases
+  const fire = (unit: EventCallable<void>) => (scope ? () => void allSettled(unit, { scope }) : () => unit());
   const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
-  if (!isOnline) barrier.lock();
+  if (!isOnline) fire(barrier.lock)();
 
-  const offOffline = onWindow('offline', () => barrier.lock());
-  const offOnline = onWindow('online', () => barrier.unlock());
+  const offOffline = onWindow('offline', fire(barrier.lock));
+  const offOnline = onWindow('online', fire(barrier.unlock));
 
   return {
     ...barrier,

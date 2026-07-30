@@ -65,11 +65,30 @@ The page effect is an `Effect<{ params, pageParam }, Page>` — a regular
 reaches it through a synchronous side channel, so page fetches stay cancellable).
 :::
 
+### `retry` and `timeout`
+
+Page fetches take the same `retry` and `timeout` options as `createQuery` — they apply to
+`start`, `fetchNext` and `fetchPrevious`:
+
+```ts
+const feed = createInfiniteQuery({
+  effect: fetchPageFx,
+  initialPageParam: 0,
+  getNextPageParam: ({ lastPage }) => lastPage.next ?? null,
+  retry: { times: 2, delay: exponentialDelay(300) },
+  timeout: 5_000, // per attempt
+});
+```
+
+`refetchAll` reloads the window straight through the effect (outside the page query), so it
+is **not** retried and ignores `timeout`.
+
 ### Barrier
 
 Pass a `barrier` (from `createBarrier`) to gate all fetches — `start`, `fetchNext`,
 `fetchPrevious`, and `refetchAll` wait while the barrier is locked (e.g. during a
-token refresh):
+token refresh). `refetchAll` re-checks it before **every** page, so a refresh that starts
+mid-window holds the remaining pages:
 
 ```ts
 import { createBarrier, createInfiniteQuery } from 'effector-refetch';
@@ -81,7 +100,11 @@ const feed = createInfiniteQuery({
   initialPageParam: 0,
   getNextPageParam: ({ lastPage }) => lastPage.next ?? null,
   barrier: authBarrier,
+  // a retried page fetch waits at the barrier too — this is what replays a 401 page
+  retry: { times: 1, filter: ({ error }) => error.status === 401 },
 });
 ```
+
+See the [auth & barrier recipe](/recipes/auth-barrier) for the full 401 flow.
 
 Built on `createQuery`, so the page fetch inherits concurrency and cancellation.
