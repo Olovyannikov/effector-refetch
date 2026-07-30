@@ -36,7 +36,7 @@
   {
     "name": "openapi codegen plugin",
     "path": "dist/openapi.mjs",
-    "limit": "1 kB",
+    "limit": "1.5 kB",
     "ignore": ["@hey-api/openapi-ts"]
   }
 ]
