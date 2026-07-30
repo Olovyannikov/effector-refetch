@@ -163,9 +163,8 @@ const expire = () => {
         Load a page or two, press <em>Expire token</em>, then <em>Load next page</em>: the
         <code>401</code> locks the barrier, the refresh runs <strong>once</strong>, and the page
         <strong>retry waits at the barrier</strong> — when it opens, the page loads and appends as if nothing
-        happened. <em>Refetch all</em> with an expired token shows the other half: the window reload waits on
-        the barrier too, but it is not retried, so the old pages stay on screen and the error surfaces in
-        <code>$status</code>.
+        happened. <em>Refetch all</em> with an expired token recovers the same way: the reload applies the
+        same <code>retry</code> per page and waits on the barrier before every attempt.
       </p>
 
       <div v-if="pages.length" class="iab__feed">

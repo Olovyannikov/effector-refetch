@@ -70,7 +70,7 @@ side-канал, так что загрузка страниц остаётся 
 ### `retry` и `timeout`
 
 Загрузка страницы принимает те же опции `retry` и `timeout`, что и `createQuery` — они
-действуют для `start`, `fetchNext` и `fetchPrevious`:
+действуют для `start`, `fetchNext`, `fetchPrevious` и для каждой страницы `refetchAll`:
 
 ```ts
 const feed = createInfiniteQuery({
@@ -82,8 +82,9 @@ const feed = createInfiniteQuery({
 });
 ```
 
-`refetchAll` перезагружает окно напрямую через эффект (мимо page-запроса), поэтому он **не**
-ретраится и игнорирует `timeout`.
+`refetchAll` перезагружает окно напрямую через эффект (мимо page-запроса), поэтому `timeout`
+до него не доходит — но конфиг `retry` применяется к каждой странице внутри цикла перезагрузки,
+а повторная попытка ждёт `barrier` наравне с остальными.
 
 ### Барьер
 
