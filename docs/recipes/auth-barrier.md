@@ -157,11 +157,12 @@ const feed = createInfiniteQuery({
 });
 ```
 
-`refetchAll` is the exception: it reloads the window straight through the effect, outside
-the page query, so it is **not** retried. It does wait on the barrier before every page, so
-a refresh that starts mid-window holds the remaining pages — but a page that fails leaves
-the previous window on screen and surfaces the error in `$error` / `$status`. Re-trigger it
-yourself if you want a second pass.
+`refetchAll` reloads the window straight through the effect, outside the page query, so its
+attempts are run by the reload loop itself — with the same `retry` config, and waiting on the
+barrier before every attempt. A 401 in the middle of the window therefore behaves like
+anywhere else: the refresh runs, the page is replayed, the reload finishes. Only when a page
+is out of attempts (or `retry.filter` rejects the error) does the reload fail, leaving the
+previous window on screen and the error in `$error` / `$status`.
 
 Load a page or two, expire the token, then load the next one — the `401` locks the barrier,
 the refresh runs once, and the page retry resumes when it opens:

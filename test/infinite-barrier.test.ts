@@ -231,6 +231,103 @@ describe('createInfiniteQuery + retry', () => {
     expect(scope.getState(feed.$pages)).toHaveLength(2);
   });
 
+  it('refetchAll retries a failed page of the window', async () => {
+    let failOnce = false; // the warm-up loads cleanly; the reload is what fails
+    const seen: number[] = [];
+    const fetchPage = createEffect(async ({ pageParam }: { params: void; pageParam: number }) => {
+      seen.push(pageParam);
+      if (pageParam === 1 && failOnce) {
+        failOnce = false;
+        throw new Error('boom');
+      }
+      return { items: [`p${pageParam}`], next: pageParam < 1 ? pageParam + 1 : null } as Page;
+    });
+    const feed = createInfiniteQuery({
+      effect: fetchPage,
+      initialPageParam: 0,
+      getNextPageParam: ({ lastPage }) => lastPage.next,
+      retry: 1,
+    });
+
+    const scope = fork();
+    await allSettled(feed.start, { scope, params: undefined });
+    await allSettled(feed.fetchNext, { scope });
+    expect(seen).toEqual([0, 1]);
+
+    failOnce = true;
+    await allSettled(feed.refetchAll, { scope });
+    // page 1 fails once inside the reload and is replayed, so the window still lands
+    expect(seen).toEqual([0, 1, 0, 1, 1]);
+    expect(scope.getState(feed.$status)).toBe('done');
+    expect(scope.getState(feed.$pages)).toHaveLength(2);
+  });
+
+  it('refetchAll: a 401 mid-window refreshes the token and replays that page', async () => {
+    let token = 'fresh';
+    const attempts: number[] = [];
+
+    const refreshFx = createEffect(async () => {
+      await tick();
+      token = 'fresh';
+    });
+    const barrier = createBarrier({ perform: refreshFx });
+
+    const fetchPage = createEffect(async ({ pageParam }: { params: void; pageParam: number }) => {
+      attempts.push(pageParam);
+      if (token === 'stale') {
+        scopeBind(barrier.lock, { safe: true })();
+        throw new HttpError(401);
+      }
+      return { items: [`p${pageParam}`], next: pageParam < 1 ? pageParam + 1 : null } as Page;
+    });
+
+    const feed = createInfiniteQuery<void, number, Page, HttpError>({
+      effect: fetchPage,
+      initialPageParam: 0,
+      getNextPageParam: ({ lastPage }) => lastPage.next,
+      barrier,
+      retry: { times: 1, filter: ({ error }) => error.status === 401 },
+    });
+
+    const scope = fork();
+    await allSettled(feed.start, { scope, params: undefined });
+    await allSettled(feed.fetchNext, { scope });
+    expect(attempts).toEqual([0, 1]);
+
+    // the token goes stale right before the reload: page 0 401s, the barrier closes,
+    // the refresh runs, and the replay goes out with the fresh token
+    token = 'stale';
+    await allSettled(feed.refetchAll, { scope });
+    expect(attempts).toEqual([0, 1, 0, 0, 1]);
+    expect(scope.getState(feed.$status)).toBe('done');
+    expect(scope.getState(feed.$pages)).toHaveLength(2);
+  });
+
+  it('refetchAll honours retry.filter — an unretryable page fails the reload', async () => {
+    const seen: number[] = [];
+    let failAll = false;
+    const fetchPage = createEffect(async ({ pageParam }: { params: void; pageParam: number }) => {
+      seen.push(pageParam);
+      if (failAll) throw new HttpError(500);
+      return { items: [`p${pageParam}`], next: null } as Page;
+    });
+    const feed = createInfiniteQuery<void, number, Page, HttpError>({
+      effect: fetchPage,
+      initialPageParam: 0,
+      getNextPageParam: ({ lastPage }) => lastPage.next,
+      retry: { times: 3, filter: ({ error }) => error.status === 401 },
+    });
+
+    const scope = fork();
+    await allSettled(feed.start, { scope, params: undefined });
+    failAll = true;
+    await allSettled(feed.refetchAll, { scope });
+
+    expect(seen).toEqual([0, 0]); // one reload attempt, no replay
+    expect(scope.getState(feed.$status)).toBe('fail');
+    expect(scope.getState(feed.$pages)).toHaveLength(1); // previous window kept
+  });
+
   it('timeout fails a slow page fetch (and the failure is retryable)', async () => {
     let calls = 0;
     const fetchPage = createEffect(async ({ pageParam }: { params: void; pageParam: number }) => {

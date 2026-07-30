@@ -91,12 +91,12 @@ async function main() {
   await allSettled(feed.fetchNext, { scope });
   show('after two fetchNext');
 
-  // the window reload waits on the barrier before EVERY page, so a refresh that
-  // starts mid-window holds the remaining pages (it is not retried, though)
+  // the window reload runs outside the page query, but it applies the same `retry`
+  // per page and waits on the barrier before every attempt — so a token that expires
+  // right before it recovers the same way
   token = 'expired';
   await allSettled(feed.refetchAll, { scope });
   show('after refetchAll with an expired token');
-  console.log('  error:', String(scope.getState(feed.$error)));
 
   // barriers are per-scope: locking one fork leaves the others running (SSR requests
   // don't pause each other). Shown on a manual barrier — `perform` would re-open this
