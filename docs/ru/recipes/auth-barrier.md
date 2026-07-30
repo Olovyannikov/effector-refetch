@@ -162,6 +162,48 @@ const feed = createInfiniteQuery({
 окна refresh придержит оставшиеся страницы, — но упавшая страница оставит на экране прежнее
 окно и покажет ошибку в `$error` / `$status`. Повторный проход запускайте сами.
 
+Загрузите страницу-другую, протухните токен и подгрузите следующую: `401` блокирует барьер,
+рефреш выполняется один раз, а повтор страницы продолжается после разблокировки:
+
+<InfiniteAuthBarrierDemo>
+<template #code>
+
+```ts
+import { createEffect } from 'effector';
+import { createBarrier, createInfiniteQuery } from 'effector-refetch';
+
+// рефреш выполняется ОДИН раз на блокировку; барьер откроется по его завершении
+const refreshTokenFx = createEffect(async () => {
+  await sleep(1200);
+  token = 'valid';
+});
+const authBarrier = createBarrier({ perform: refreshTokenFx });
+
+const fetchPageFx = createEffect(async ({ pageParam }: { params: void; pageParam: number }) => {
+  await sleep(450);
+  if (token !== 'valid') {
+    authBarrier.lock(); // лочим там, где увидели 401 (так же поступил бы HTTP-слой)
+    throw new HttpError(401);
+  }
+  return { items: postsFor(pageParam), next: pageParam < 4 ? pageParam + 1 : null };
+});
+
+const feed = createInfiniteQuery<void, number, PostsPage, HttpError>({
+  effect: fetchPageFx,
+  initialPageParam: 0,
+  getNextPageParam: ({ lastPage, lastPageParam }) => (lastPage.next ? lastPageParam + 1 : null),
+  barrier: authBarrier, // загрузка страниц ждёт, пока обновляется токен
+  retry: { times: 1, filter: ({ error }) => error.status === 401 }, // …а упавшая страница переигрывается
+});
+```
+
+</template>
+</InfiniteAuthBarrierDemo>
+
+Запускаемая версия того же сценария (фейковый API, без сети) — в
+[`examples/infinite-auth-barrier.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/infinite-auth-barrier.ts):
+`npx tsx examples/infinite-auth-barrier.ts`.
+
 ## Scope и SSR
 
 Барьер fork-безопасен: и флаг блокировки, и очередь ожидающих запусков лежат в сторах, поэтому
