@@ -68,7 +68,7 @@ reaches it through a synchronous side channel, so page fetches stay cancellable)
 ### `retry` and `timeout`
 
 Page fetches take the same `retry` and `timeout` options as `createQuery` — they apply to
-`start`, `fetchNext` and `fetchPrevious`:
+`start`, `fetchNext`, `fetchPrevious` and to every page of a `refetchAll`:
 
 ```ts
 const feed = createInfiniteQuery({
@@ -80,8 +80,9 @@ const feed = createInfiniteQuery({
 });
 ```
 
-`refetchAll` reloads the window straight through the effect (outside the page query), so it
-is **not** retried and ignores `timeout`.
+`refetchAll` reloads the window straight through the effect (outside the page query), so
+`timeout` doesn't reach it — but the `retry` config is applied per page inside the reload
+loop, and a replayed page waits on the `barrier` like any other attempt.
 
 ### Barrier
 
