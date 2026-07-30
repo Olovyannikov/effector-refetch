@@ -163,6 +163,48 @@ a refresh that starts mid-window holds the remaining pages — but a page that f
 the previous window on screen and surfaces the error in `$error` / `$status`. Re-trigger it
 yourself if you want a second pass.
 
+Load a page or two, expire the token, then load the next one — the `401` locks the barrier,
+the refresh runs once, and the page retry resumes when it opens:
+
+<InfiniteAuthBarrierDemo>
+<template #code>
+
+```ts
+import { createEffect } from 'effector';
+import { createBarrier, createInfiniteQuery } from 'effector-refetch';
+
+// the refresh runs ONCE per lock; the barrier re-opens when it settles
+const refreshTokenFx = createEffect(async () => {
+  await sleep(1200);
+  token = 'valid';
+});
+const authBarrier = createBarrier({ perform: refreshTokenFx });
+
+const fetchPageFx = createEffect(async ({ pageParam }: { params: void; pageParam: number }) => {
+  await sleep(450);
+  if (token !== 'valid') {
+    authBarrier.lock(); // lock where the 401 is observed (an HTTP layer would do this)
+    throw new HttpError(401);
+  }
+  return { items: postsFor(pageParam), next: pageParam < 4 ? pageParam + 1 : null };
+});
+
+const feed = createInfiniteQuery<void, number, PostsPage, HttpError>({
+  effect: fetchPageFx,
+  initialPageParam: 0,
+  getNextPageParam: ({ lastPage, lastPageParam }) => (lastPage.next ? lastPageParam + 1 : null),
+  barrier: authBarrier, // page fetches wait while the token is being refreshed
+  retry: { times: 1, filter: ({ error }) => error.status === 401 }, // …and the 401 page is replayed
+});
+```
+
+</template>
+</InfiniteAuthBarrierDemo>
+
+A runnable version of the same flow (fake API, no network) lives in
+[`examples/infinite-auth-barrier.ts`](https://github.com/Olovyannikov/effector-refetch/blob/main/examples/infinite-auth-barrier.ts):
+`npx tsx examples/infinite-auth-barrier.ts`.
+
 ## Scope and SSR
 
 The barrier is fork-safe: both the lock flag and the queue of waiting runs live in stores,
