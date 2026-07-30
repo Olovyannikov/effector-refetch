@@ -67,11 +67,30 @@ side-канал, так что загрузка страниц остаётся 
 
 Построено на `createQuery`, поэтому загрузка страницы наследует concurrency и отмену.
 
+### `retry` и `timeout`
+
+Загрузка страницы принимает те же опции `retry` и `timeout`, что и `createQuery` — они
+действуют для `start`, `fetchNext` и `fetchPrevious`:
+
+```ts
+const feed = createInfiniteQuery({
+  effect: fetchPageFx,
+  initialPageParam: 0,
+  getNextPageParam: ({ lastPage }) => lastPage.next ?? null,
+  retry: { times: 2, delay: exponentialDelay(300) },
+  timeout: 5_000, // на попытку
+});
+```
+
+`refetchAll` перезагружает окно напрямую через эффект (мимо page-запроса), поэтому он **не**
+ретраится и игнорирует `timeout`.
+
 ### Барьер
 
 Передайте `barrier` (из `createBarrier`), чтобы гейтить все запросы — `start`,
 `fetchNext`, `fetchPrevious` и `refetchAll` ждут, пока барьер залочен (например,
-во время обновления токена):
+во время обновления токена). `refetchAll` перепроверяет барьер перед **каждой** страницей,
+поэтому начавшийся в середине окна refresh придержит оставшиеся страницы:
 
 ```ts
 import { createBarrier, createInfiniteQuery } from 'effector-refetch';
@@ -83,5 +102,9 @@ const feed = createInfiniteQuery({
   initialPageParam: 0,
   getNextPageParam: ({ lastPage }) => lastPage.next ?? null,
   barrier: authBarrier,
+  // повторная попытка страницы тоже ждёт барьер — именно она переигрывает упавшую на 401
+  retry: { times: 1, filter: ({ error }) => error.status === 401 },
 });
 ```
+
+Полный сценарий 401 — в [рецепте auth & barrier](/ru/recipes/auth-barrier).

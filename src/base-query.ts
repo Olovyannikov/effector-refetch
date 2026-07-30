@@ -388,7 +388,9 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
       const lane = laneOf(run.params);
       laneDelta(reg, lane, 1);
       try {
-        if (barrierRef) await barrierRef.__.wait();
+        // called synchronously, still inside this effect's scope context, so the
+        // wait (and its release) belong to the scope that started the run
+        if (barrierRef) await barrierRef.__.waitFx();
       } finally {
         laneDelta(reg, lane, -1);
       }

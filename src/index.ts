@@ -34,6 +34,7 @@ export {
   refetchOnReconnect,
   createNetworkBarrier,
   type NetworkBarrier,
+  type CreateNetworkBarrierConfig,
 } from './browser';
 export { createBarrier, type Barrier, type CreateBarrierConfig } from './barrier';
 export { invalidate, invalidateTag, type InvalidateConfig } from './invalidate';

@@ -106,7 +106,70 @@ const q = createQuery({ effect: fx, barrier: authBarrier });
 applyBarrier(existingQuery, authBarrier);
 ```
 
-::: warning Клиентский механизм
-Barrier читает no-scope-стор, поэтому рассчитан на одно работающее приложение, а не на
-изоляцию по `fork`. (Пауза запросов редко нужна на SSR.)
+## Лочить надо на самой ошибке, а не на `finished.fail`
+
+`finished.fail` срабатывает только на **финальной** ошибке — когда ретраи уже исчерпаны.
+Блокировка по нему опаздывает: ретрай уже ушёл с протухшим токеном. Вешайте `lock` на сырой
+эффект (`fx.failData`) — он стреляет на самом первом `401`:
+
+```ts
+// ✅ срабатывает на первом 401, до планирования ретрая
+sample({ clock: getProfileFx.failData, filter: (e) => e.status === 401, target: authBarrier.lock });
+
+// ❌ только после того, как все ретраи уже провалились
+sample({
+  clock: profile.finished.fail,
+  filter: ({ error }) => error.status === 401,
+  target: authBarrier.lock,
+});
+```
+
+HTTP-слой подходит не хуже — лочьте там, где увидели `401`, перед пробросом ошибки. Этот код
+выполняется вне стека вызовов effector, поэтому привяжите вызов к scope:
+
+```ts
+import { scopeBind } from 'effector';
+
+async function request(url: string) {
+  const response = await fetch(url);
+  if (response.status === 401) {
+    scopeBind(authBarrier.lock, { safe: true })();
+    throw Object.assign(new Error('Unauthorized'), { status: 401 });
+  }
+  return response.json();
+}
+```
+
+## Бесконечные запросы
+
+`createInfiniteQuery` принимает `barrier` и `retry`, поэтому постраничные ленты получают тот
+же сценарий: `start`, `fetchNext` и `fetchPrevious` ждут, пока барьер закрыт, и повторная
+попытка загрузки страницы ждёт тоже — именно она переигрывает упавшую на `401` страницу
+после обновления токена.
+
+```ts
+const feed = createInfiniteQuery({
+  effect: fetchPageFx,
+  initialPageParam: 0,
+  getNextPageParam: ({ lastPage }) => lastPage.next,
+  barrier: authBarrier,
+  retry: { times: 1, filter: ({ error }) => error.status === 401 },
+});
+```
+
+Исключение — `refetchAll`: он перезагружает окно напрямую через эффект, мимо page-запроса, и
+потому **не ретраится**. Барьер он ждёт перед каждой страницей, так что начавшийся в середине
+окна refresh придержит оставшиеся страницы, — но упавшая страница оставит на экране прежнее
+окно и покажет ошибку в `$error` / `$status`. Повторный проход запускайте сами.
+
+## Scope и SSR
+
+Барьер fork-безопасен: и флаг блокировки, и очередь ожидающих запусков лежат в сторах, поэтому
+параллельные scope — SSR-запросы, тесты — блокируются и освобождаются независимо. Блокировка
+одного scope не мешает остальным.
+
+::: warning Блокировка извне effector
+`lock()`, вызванный из HTTP-слоя, колбэка SDK или любого другого места вне стека вызовов
+effector, попадёт в **бесскоупное** приложение, и scope-запросы его не увидят. Оборачивайте в
+`scopeBind(barrier.lock, { safe: true })` (как выше) или лочьте декларативно через `sample`.
 :::
