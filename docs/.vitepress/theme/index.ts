@@ -34,6 +34,10 @@ export default {
       defineClientComponent(() => import('./components/AuthBarrierDemo.vue')),
     );
     app.component(
+      'InfiniteAuthBarrierDemo',
+      defineClientComponent(() => import('./components/InfiniteAuthBarrierDemo.vue')),
+    );
+    app.component(
       'GraphqlCountriesDemo',
       defineClientComponent(() => import('./components/GraphqlCountriesDemo.vue')),
     );

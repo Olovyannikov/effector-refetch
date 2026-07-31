@@ -1,8 +1,10 @@
 import {
+  attach,
   combine,
   createEffect,
   createEvent,
   createStore,
+  is,
   sample,
   scopeBind,
   type Effect,
@@ -12,7 +14,7 @@ import {
 } from 'effector';
 import { createQuery } from './create-query';
 import { invalidateTag, matchesTag } from './invalidate';
-import type { ConcurrencyStrategy, QueryStatus, RetryConfig } from './types';
+import type { ConcurrencyStrategy, DelayFn, QueryStatus, RetryConfig } from './types';
 import type { Barrier } from './barrier';
 
 export interface GetNextPageParamCtx<PageParam, Page> {
@@ -39,10 +41,10 @@ interface BaseInfiniteConfig<Params, PageParam, Page, Error = unknown> {
   maxPages?: number;
   concurrency?: ConcurrencyStrategy;
   /**
-   * Retry a failed page fetch (`start` / `fetchNext` / `fetchPrevious`), same shape as
-   * `createQuery`'s. With a `barrier`, a retried attempt waits for it to open — that is
-   * what turns a 401 into "refresh the token, then load the page again". `refetchAll`
-   * runs outside the page query and is NOT retried.
+   * Retry a failed page fetch, same shape as `createQuery`'s. Applies to `start`,
+   * `fetchNext`, `fetchPrevious` and to each page of a `refetchAll` window reload. With a
+   * `barrier`, a retried attempt waits for it to open — that is what turns a 401 into
+   * "refresh the token, then load the page again".
    */
   retry?: number | RetryConfig<Error>;
   /** Per-attempt deadline (ms) for a page fetch; exceeding it fails the attempt (retryable). 0 = off. */
@@ -298,13 +300,24 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   const replaceState = createEvent<InfiniteState<PageParam, Page>>(evName('replaceState'));
   $infinite.on(replaceState, (_s, state) => state);
 
-  const refetchAllFx = createEffect<
-    { params: Params; pageParams: PageParam[]; token: number },
-    { pages: Page[]; pageParams: PageParam[]; token: number },
-    Error
-  >({
+  // retry knobs for the window reload. `times` may be a `Store<number>`, so it is read
+  // through the effect's `source` (fork-correct) rather than `getState()`.
+  const retryCfg = typeof config.retry === 'number' ? { times: config.retry } : config.retry;
+  const $refetchRetryTimes = is.store(retryCfg?.times)
+    ? retryCfg.times
+    : createStore(retryCfg?.times ?? 0, ign('$refetchRetryTimes'));
+  const retryDelay = retryCfg?.delay;
+  const delayOf: DelayFn = typeof retryDelay === 'number' ? () => retryDelay : (retryDelay ?? (() => 0));
+  const retryFilter = retryCfg?.filter ?? (() => true);
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  const refetchAllFx = attach({
     name: evName('refetchAllFx'),
-    handler: async ({ params, pageParams, token }) => {
+    source: $refetchRetryTimes,
+    effect: async (
+      times: number,
+      { params, pageParams, token }: { params: Params; pageParams: PageParam[]; token: number },
+    ) => {
       // bind the wait to THIS scope while the handler is still synchronous — after the
       // first `await` the scope context is gone, and later iterations would wait on the
       // scope-less barrier instead of their own
@@ -320,17 +333,34 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
           : (pageParam: PageParam) => call({ params, pageParam, mode: 'append' });
       const pages: Page[] = [];
       for (const pageParam of pageParams) {
-        // gate EVERY page, not just the first: a barrier that closes mid-window (a 401
-        // on page 3, another query starting a token refresh) must hold the rest of the
-        // reload until it reopens, instead of firing them with a stale token
-        if (waitForBarrier) await waitForBarrier();
-        // sequential, straight through the effect (not pageQuery) — no intermediate
-        // window states, no TAKE_LATEST self-cancellation
-        pages.push(await fetchOne(pageParam));
+        // the page query's retry lives in the graph, which this loop bypasses — so the
+        // attempts are run here, with the same `retry` config the page fetches use
+        for (let attempt = 0; ; attempt++) {
+          // gate EVERY attempt, not just the first page: a barrier that closes
+          // mid-window (a 401 on page 3 kicking off a token refresh) must hold the rest
+          // of the reload until it reopens, and the replay must pick up the fresh token
+          if (waitForBarrier) await waitForBarrier();
+          try {
+            // sequential, straight through the effect (not pageQuery) — no intermediate
+            // window states, no TAKE_LATEST self-cancellation
+            pages.push(await fetchOne(pageParam));
+            break;
+          } catch (error) {
+            if (attempt >= times || !retryFilter({ error: error as Error, attempt: attempt + 1 })) {
+              throw error;
+            }
+            const ms = delayOf(attempt + 1);
+            if (ms > 0) await sleep(ms);
+          }
+        }
       }
       return { pages, pageParams, token };
     },
-  });
+  }) as unknown as Effect<
+    { params: Params; pageParams: PageParam[]; token: number },
+    { pages: Page[]; pageParams: PageParam[]; token: number },
+    Error
+  >;
 
   // a failed refetchAll must reach the exposed stores, not only finished.fail —
   // pageQuery's own $error/$status never see the window reload
