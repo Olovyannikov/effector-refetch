@@ -83,12 +83,98 @@ retry(getPetByIdQuery, { times: 3 });
 cache(getPetByIdQuery, { staleAfter: 60_000 });
 ```
 
+## Постраничные операции
+
+Включите `infinite` — и рядом с обычным запросом для каждой постраничной операции появится
+двойник на `createInfiniteQuery`. Единственное, чего спека описать не может, — **где в ответе
+лежит следующий курсор**; это правило пишете вы, а сгенерированный файл его импортирует:
+
+```ts
+// openapi-ts.config.ts
+effectorRefetch({
+  infinite: {
+    getNextPageParam: { module: './pagination', name: 'byNextPage' },
+  },
+});
+```
+
+```ts
+// src/api/pagination.ts — ваш файл, не генерируется
+export const byNextPage = ({ lastPage }: { lastPage: { nextPage?: number | null } }) =>
+  lastPage.nextPage ?? null;
+```
+
+```ts
+// src/api/refetch.gen.ts — сгенерировано
+export const listPetsInfiniteQuery = createInfiniteQuery({
+  name: 'listPets.infinite',
+  initialPageParam: 1 as number,
+  getNextPageParam: byNextPage,
+  effect: createRequestFx(
+    (
+      { params, pageParam }: { params: Options<ListPetsData>; pageParam: number },
+      { signal }: { signal: AbortSignal },
+    ) =>
+      listPets({
+        ...params,
+        query: { ...params.query, page: pageParam },
+        signal,
+        throwOnError: true,
+      }).then((r) => r.data),
+  ),
+});
+```
+
+Дальше — как с любым бесконечным запросом: `start` принимает собственные параметры операции,
+курсором управляет запрос:
+
+```ts
+listPetsInfiniteQuery.start({ query: { limit: 20 } });
+listPetsInfiniteQuery.fetchNext();
+```
+
+**Какие операции попадают.** По умолчанию — query-операции, у которых спека помечает
+query-параметр как курсор пагинации: hey-api сам флагует `page`, `offset`, `cursor`, `after`,
+`before`, `start`. Если у вашего API другие имена — переопределите через `match` и `pageParam`.
+
+**Первая страница.** `page` начинается с `1`, `offset` / `start` — с `0`, всё остальное — с
+`null`. Курсор `null` делает тип параметра nullable, и первый запрос уходит **без** параметра —
+никакого `?cursor=null`. Значение меняется через `initialPageParam`.
+
+**По операциям.** Все опции, кроме `match` и `suffix`, принимают ещё и функцию, поэтому один
+конфиг покрывает несколько стилей пагинации:
+
+```ts
+effectorRefetch({
+  infinite: {
+    getNextPageParam: ({ pageParam }) =>
+      pageParam === 'cursor'
+        ? { module: './pagination', name: 'byNextCursor' }
+        : { module: './pagination', name: 'byNextPage' },
+    getPreviousPageParam: ({ pageParam }) =>
+      pageParam === 'page' ? { module: './pagination', name: 'byPrevPage' } : undefined,
+  },
+});
+```
+
+Несовпавшее правило — **ошибка компиляции**, а не сюрприз в рантайме: сгенерированный запрос
+типизирует `getNextPageParam` по типу страницы самой операции, поэтому числовое правило для
+строкового курсора не пройдёт `tsc`.
+
 ## Опции
 
 ```ts
 effectorRefetch({
   output: 'refetch', // имя генерируемого файла -> refetch.gen.ts
   exportFromIndex: false, // реэкспорт из index.ts вывода
+  infinite: {
+    getNextPageParam: { module: './pagination', name: 'byNextPage' }, // обязательно, чтобы включить
+    getPreviousPageParam: undefined, // включает fetchPrevious
+    match: undefined, // (ctx) => boolean — по умолчанию параметр пагинации из спеки
+    pageParam: undefined, // переопределить имя параметра-курсора
+    initialPageParam: undefined, // переопределить значение первой страницы
+    suffix: 'InfiniteQuery', // суффикс имени экспорта
+  },
 });
 ```
 

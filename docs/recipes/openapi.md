@@ -83,12 +83,98 @@ retry(getPetByIdQuery, { times: 3 });
 cache(getPetByIdQuery, { staleAfter: 60_000 });
 ```
 
+## Paginated operations
+
+Opt in with `infinite`, and every paginated operation gets a `createInfiniteQuery` twin next to
+its plain query. The one thing a spec can never describe is **where the next cursor lives in the
+response**, so you supply that rule and the generated file imports it:
+
+```ts
+// openapi-ts.config.ts
+effectorRefetch({
+  infinite: {
+    getNextPageParam: { module: './pagination', name: 'byNextPage' },
+  },
+});
+```
+
+```ts
+// src/api/pagination.ts — yours, not generated
+export const byNextPage = ({ lastPage }: { lastPage: { nextPage?: number | null } }) =>
+  lastPage.nextPage ?? null;
+```
+
+```ts
+// src/api/refetch.gen.ts — generated
+export const listPetsInfiniteQuery = createInfiniteQuery({
+  name: 'listPets.infinite',
+  initialPageParam: 1 as number,
+  getNextPageParam: byNextPage,
+  effect: createRequestFx(
+    (
+      { params, pageParam }: { params: Options<ListPetsData>; pageParam: number },
+      { signal }: { signal: AbortSignal },
+    ) =>
+      listPets({
+        ...params,
+        query: { ...params.query, page: pageParam },
+        signal,
+        throwOnError: true,
+      }).then((r) => r.data),
+  ),
+});
+```
+
+Use it like any infinite query — `start` takes the operation's own params, the cursor is managed
+for you:
+
+```ts
+listPetsInfiniteQuery.start({ query: { limit: 20 } });
+listPetsInfiniteQuery.fetchNext();
+```
+
+**Which operations count.** By default, query operations whose spec marks a query parameter as a
+pagination cursor — hey-api flags `page`, `offset`, `cursor`, `after`, `before`, `start` itself.
+Override with `match` and `pageParam` when your API names things differently.
+
+**The first page.** `page` starts at `1`, `offset` / `start` at `0`, anything else at `null`. A
+`null` cursor makes the param type nullable and the first request goes out **without** the
+parameter — no `?cursor=null`. Set `initialPageParam` to change it.
+
+**Per operation.** Every option except `match` and `suffix` also accepts a function, so one
+config can serve several pagination styles:
+
+```ts
+effectorRefetch({
+  infinite: {
+    getNextPageParam: ({ pageParam }) =>
+      pageParam === 'cursor'
+        ? { module: './pagination', name: 'byNextCursor' }
+        : { module: './pagination', name: 'byNextPage' },
+    getPreviousPageParam: ({ pageParam }) =>
+      pageParam === 'page' ? { module: './pagination', name: 'byPrevPage' } : undefined,
+  },
+});
+```
+
+A mismatched rule is a **compile error**, not a runtime surprise: the generated query types
+`getNextPageParam` against the operation's own page type, so handing a number-based rule to a
+string cursor fails `tsc`.
+
 ## Options
 
 ```ts
 effectorRefetch({
   output: 'refetch', // generated file name -> refetch.gen.ts
   exportFromIndex: false, // re-export from the output index.ts
+  infinite: {
+    getNextPageParam: { module: './pagination', name: 'byNextPage' }, // required to enable
+    getPreviousPageParam: undefined, // enables fetchPrevious
+    match: undefined, // (ctx) => boolean — default: the spec's pagination parameter
+    pageParam: undefined, // override the cursor parameter name
+    initialPageParam: undefined, // override the first-page value
+    suffix: 'InfiniteQuery', // export name suffix
+  },
 });
 ```
 
