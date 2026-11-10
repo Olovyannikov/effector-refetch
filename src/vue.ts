@@ -55,8 +55,9 @@ export function useQuery<Params, Result, Error, Mapped, Data>(
   // refetch-stale-on-mount (with the last params), opt-in
   onMounted(() => {
     const mode = options?.refetchOnMount;
-    if (!mode || u.status.value === 'initial' || !u.enabled.value || u.params.value == null) return;
-    if (mode === 'always' || u.stale.value) u.refetch(u.params.value as Params);
+    // has run ⇔ status !== 'initial'; void queries keep `params === null` (effector skips `undefined`)
+    if (!mode || u.status.value === 'initial' || !u.enabled.value) return;
+    if (mode === 'always' || u.stale.value) u.refetch((u.params.value ?? undefined) as Params);
   });
 
   return {

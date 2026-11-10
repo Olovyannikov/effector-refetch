@@ -68,10 +68,10 @@ export function useQuery<Params, Result, Error, Mapped, Data>(
   const mountRefetched = useRef(false);
   useEffect(() => {
     const mode = options?.refetchOnMount;
+    // has run ⇔ status !== 'initial'; void queries keep `params === null` (effector skips `undefined`)
     if (mountRefetched.current || !mode || state.status === 'initial' || !state.enabled) return;
-    if (state.params == null) return;
     mountRefetched.current = true;
-    if (mode === 'always' || state.stale) triggers.refetch(state.params as Params);
+    if (mode === 'always' || state.stale) triggers.refetch((state.params ?? undefined) as Params);
     // mount-only: read the values as they are when the component first subscribes
   }, []);
 

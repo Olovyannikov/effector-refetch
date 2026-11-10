@@ -179,8 +179,10 @@ export function keepFresh<Q extends AnyQuery>(
   sample({
     clock,
     source: { params: query.$params, status: query.$status, enabled: query.$enabled },
-    filter: ({ status, enabled, params }: Snapshot) => status !== 'initial' && enabled && params != null,
-    fn: ({ params }: Snapshot) => params,
+    // «has run» is `status !== 'initial'`, not `params != null`: effector never stores `undefined`,
+    // so a query started without params (void) keeps `$params === null` forever.
+    filter: ({ status, enabled }: Snapshot) => status !== 'initial' && enabled,
+    fn: ({ params }: Snapshot) => params ?? undefined,
     target: query.refetch,
   });
   return query;

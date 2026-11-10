@@ -39,6 +39,19 @@ describe('SSR: serialize(scope) carries query state', () => {
     expect(calls).toBe(1);
   });
 
+  it('serialize(scope) after a reset is free of "store should have sid" noise ($pollId)', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fx = createEffect(async (id: number) => id * 2);
+    const query = createQuery({ effect: fx, name: 'reset-quiet', retry: 0, cache: false });
+    const scope = fork();
+    await allSettled(query.start, { scope, params: 1 });
+    await allSettled(query.reset, { scope }); // bumps the internal polling token
+
+    serialize(scope);
+    const sidComplaints = errors.mock.calls.filter((args) => String(args[0]).includes('sid'));
+    expect(sidComplaints).toEqual([]);
+  });
+
   it('serialize(scope) after a run is free of "store should have sid" noise', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const fx = createEffect(async (id: number) => id * 2);

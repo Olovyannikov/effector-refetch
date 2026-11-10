@@ -49,6 +49,28 @@ describe('refetchOnMount', () => {
     });
   });
 
+  describe('React (void query)', () => {
+    afterEach(async () => (await import('@testing-library/react')).cleanup());
+
+    it("'always' refetches a query without params on mount", async () => {
+      const { render } = await import('@testing-library/react');
+      const { useQuery } = await import('../src/react');
+      let calls = 0;
+      const fx = createEffect(async () => ++calls);
+      const query = createQuery({ effect: fx });
+      query.start();
+      await until(() => query.$status.getState() === 'done');
+
+      function View() {
+        useQuery(query, { refetchOnMount: 'always' });
+        return null;
+      }
+      render(<View />);
+      await until(() => calls === 2);
+      expect(calls).toBe(2);
+    });
+  });
+
   describe('Vue', () => {
     it("'always' refetches on mount", async () => {
       const { mount } = await import('@vue/test-utils');
