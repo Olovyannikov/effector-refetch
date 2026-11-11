@@ -153,5 +153,6 @@ before they reach the network.
   a cancelled mutation doesn't stick.
 - `reset` does not clear `$params` — it holds the last _requested_ params, which
   `invalidate` / `keepFresh` / a tag refetch replay.
-- A `Date` (or any class instance) in params survives SSR as a string, which is a related trap
-  in the same store: [#96](https://github.com/Olovyannikov/effector-refetch/issues/96).
+- A `Date` (or any class instance) in params survives SSR as a string unless you give it a
+  codec — see [`paramsSerialize`](/api/queries#params-across-ssr-paramsserialize), the related
+  trap in the same store.

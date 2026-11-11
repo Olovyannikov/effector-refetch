@@ -117,4 +117,6 @@ export type {
   ParamsOf,
   ResultOf,
   ErrorOf,
+  Json,
+  ParamsSerialize,
 } from './types';

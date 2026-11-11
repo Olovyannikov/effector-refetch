@@ -14,7 +14,7 @@ import {
 } from 'effector';
 import { createQuery } from './create-query';
 import { invalidateTag, matchesTag } from './invalidate';
-import type { ConcurrencyStrategy, DelayFn, QueryStatus, RetryConfig } from './types';
+import type { ConcurrencyStrategy, DelayFn, Json, ParamsSerialize, QueryStatus, RetryConfig } from './types';
 import type { Barrier } from './barrier';
 
 export interface GetNextPageParamCtx<PageParam, Page> {
@@ -59,6 +59,12 @@ interface BaseInfiniteConfig<Params, PageParam, Page, Error = unknown> {
   timeout?: number | Store<number>;
   /** Invalidation tags: a matching `invalidateTag(...)` triggers `refetchAll`. */
   tags?: string[];
+  /**
+   * How this query's `$params` crosses the SSR boundary — same meaning as on
+   * `createQuery`. Covers the PUBLIC params only; page params ride in `$infinite` and
+   * must be JSON-shaped.
+   */
+  paramsSerialize?: ParamsSerialize<Params>;
   name?: string;
   /** Label the public/internal units for the inspector even without a `name`. */
   debug?: boolean;
@@ -288,7 +294,20 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     };
   };
 
-  const $params = createStore<Params | null>(null, ser('$params'))
+  const paramsSer = config.paramsSerialize;
+  const $params = createStore<Params | null>(null, {
+    ...ser('$params'),
+    ...(paramsSer === 'ignore'
+      ? { serialize: 'ignore' as const }
+      : paramsSer
+        ? {
+            serialize: {
+              write: (p: Params | null) => (p === null ? null : paramsSer.write(p)),
+              read: (j: Json) => (j == null ? null : paramsSer.read(j)),
+            },
+          }
+        : {}),
+  })
     // `?? null`: void params arrive as undefined, which effector treats as "skip update"
     .on(start, (_p, params) => params ?? null)
     .reset(reset);

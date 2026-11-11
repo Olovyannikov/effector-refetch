@@ -236,6 +236,51 @@ postsQuery.start('effector'); // the effect receives { search, userId, limit }
   mapping frozen at start time (a retry is the same request).
 - `mapParams` must be **pure** — it runs inside a sample `fn`.
 
+## Params across SSR: `paramsSerialize`
+
+`$params` is **serialized state**: it travels through `serialize(scope)` so a hydrated client
+knows what the last run asked for — that is what `refetchOnMount`, `invalidate`, `keepFresh`
+and tag refetches replay. Anything in the params that is not JSON-shaped degrades on the way:
+
+```ts
+// server
+query.start({ from: new Date('2026-01-02T03:04:05Z') });
+// hydrated client
+client.getState(query.$params); // { from: "2026-01-02T03:04:05.000Z" }  ← a string
+```
+
+Nothing warns. The types still promise a `Date`, so the first `params.from.getTime()`
+downstream throws, and a `cache.key` built from it produces a **different key** on each side
+of the boundary — so the entries the server warmed are missed and everything refetches.
+
+Give such params a codec:
+
+```ts
+const query = createQuery({
+  effect: fetchReportFx,
+  paramsSerialize: {
+    write: (p) => ({ from: p.from.toISOString() }),
+    read: (j) => ({ from: new Date(j.from) }),
+  },
+});
+```
+
+`read` may declare the exact shape `write` produced — no `Json` casting. The callbacks never
+see the empty store: `null` is handled for you. The same option exists on `createMutation` and
+`createInfiniteQuery` (where it covers the public params; page params ride in `$infinite` and
+must be JSON-shaped).
+
+Anything class-shaped needs this — `Temporal.*`, `BigInt`, `Map` / `Set`, `URL`, a domain value
+object.
+
+```ts
+paramsSerialize: 'ignore'; // keep params out of the payload entirely
+```
+
+That is farfetched's behaviour (its `$lastParams` is never serialized). The cost is that a
+hydrated client no longer knows what to refetch with, so `refetchOnMount` / `invalidate` /
+`keepFresh` have nothing to replay until the query runs again.
+
 ## Sourced (reactive) config
 
 Inline `concurrency`, `retry.times`, `cache.staleAfter` (and `enabled`) accept a `Store`
