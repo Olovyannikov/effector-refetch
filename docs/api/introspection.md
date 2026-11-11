@@ -28,7 +28,14 @@ Every query exposes `query.__.inspect` — effector events you can subscribe to:
 | `fail`                   | `{ params, error }`          |
 | `aborted`                | `{ params }`                 |
 | `cacheHit` / `cacheMiss` | `{ params }`                 |
+| `cacheError`             | `{ params, error }`          |
 | `retry`                  | `{ params, attempt, error }` |
+
+`cacheError` fires when a cache **read** rejects — a flaky adapter (IndexedDB, a remote
+cache), or a `cache.key` that threw. The run is **not** lost: a failed read is treated as a
+miss and falls through to the network, because a cache is an optimization and never the source
+of truth. That also makes this stream the only place such a failure shows up, so watch it if
+you run a custom adapter.
 
 ## attachQueryLogger
 
@@ -44,7 +51,7 @@ stop(); // unsubscribe
 ```
 
 Pass a custom `handler` to forward entries into your own logger or the effector
-inspector. Entry types: `start | run | done | fail | aborted | cache-hit | cache-miss | retry`.
+inspector. Entry types: `start | run | done | fail | aborted | cache-hit | cache-miss | cache-error | retry`.
 
 Options: `name`, `handler`, `now` (clock override for tests) and `scope` — pass a fork to
 observe **only that scope's** events; without it the logger is global (every scope plus the

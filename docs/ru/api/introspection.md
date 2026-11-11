@@ -28,7 +28,14 @@ const todos = createQuery({ effect: fetchTodosFx, name: 'todos' });
 | `fail`                   | `{ params, error }`          |
 | `aborted`                | `{ params }`                 |
 | `cacheHit` / `cacheMiss` | `{ params }`                 |
+| `cacheError`             | `{ params, error }`          |
 | `retry`                  | `{ params, attempt, error }` |
+
+`cacheError` срабатывает, когда падает **чтение** кэша — нестабильный адаптер (IndexedDB,
+удалённый кэш) или бросивший `cache.key`. Запуск при этом **не** теряется: упавшее чтение
+считается промахом и уходит в сеть, потому что кэш — оптимизация, а не источник истины.
+Из-за этого поток событий — единственное место, где такая ошибка вообще видна, так что со
+своим адаптером за ним стоит следить.
 
 ## attachQueryLogger
 
@@ -44,7 +51,7 @@ stop(); // отписаться
 ```
 
 Передайте свой `handler`, чтобы форвардить записи в собственный логгер или инспектор
-effector. Типы записей: `start | run | done | fail | aborted | cache-hit | cache-miss | retry`.
+effector. Типы записей: `start | run | done | fail | aborted | cache-hit | cache-miss | cache-error | retry`.
 
 Опции: `name`, `handler`, `now` (подменяемые часы для тестов) и `scope` — передайте форк,
 чтобы наблюдать **только его** события; без него логгер глобален (все scope плюс no-scope

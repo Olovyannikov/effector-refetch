@@ -282,6 +282,9 @@ export interface ResolvedCache<Params = unknown> {
   fillOnAbort: boolean;
 }
 
+/** The native Error — the `Error` generics below shadow the global name. */
+type NativeCacheError = Error;
+
 /** Lifecycle event stream for devtools / logging. */
 export interface QueryInspect<Params, Mapped, Error> {
   start: Event<{ params: Params }>;
@@ -291,6 +294,13 @@ export interface QueryInspect<Params, Mapped, Error> {
   aborted: Event<{ params: Params; reason: AbortReason }>;
   cacheHit: Event<{ params: Params }>;
   cacheMiss: Event<{ params: Params }>;
+  /**
+   * A cache READ rejected (a flaky adapter, a throwing `cache.key`). The run is not
+   * lost — it falls through to the network as a miss — so this stream is the only
+   * place the failure surfaces. Carries the NATIVE error the adapter threw, not the
+   * query's `Error` type.
+   */
+  cacheError: Event<{ params: Params; error: NativeCacheError }>;
   retry: Event<{ params: Params; attempt: number; error: Error }>;
 }
 

@@ -661,6 +661,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     fn: ({ params, mapped }) => ({ params, mapped }),
     target: toExec,
   });
+  // A FAILED read is a miss, not a dead run. The cache is an optimization, never the
+  // source of truth, so a rejecting adapter (IndexedDB / remote having a bad moment) or
+  // a throwing `cache.key` must degrade to "slower", not to "the query stops working" —
+  // every other branch here is clocked on `doneData`, so without this the run evaporates:
+  // no network, no lifecycle event, and `$data` still showing the previous params.
+  sample({
+    clock: lookupFx.fail,
+    fn: ({ params: req }) => ({ params: req.params, mapped: req.mapped }),
+    target: toExec,
+  });
 
   const setFx = createEffect({
     name: evName('setFx'),
@@ -726,6 +736,12 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     clock: prefetchLookupFx.doneData,
     filter: ({ fresh }) => !fresh,
     fn: ({ params, mapped, adapter }) => ({ params, mapped, adapter }),
+    target: prefetchRunFx,
+  });
+  // same as the main path: an unreadable entry is unknown, not fresh
+  sample({
+    clock: prefetchLookupFx.fail,
+    fn: ({ params: req }) => ({ params: req.params, mapped: req.mapped, adapter: req.adapter }),
     target: prefetchRunFx,
   });
   sample({ clock: prefetchRunFx.doneData, target: setFx });
@@ -1285,17 +1301,16 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   });
 
   // ---- introspection (devtools / logger) ----
-  const { inspectStart, inspectRun, inspectCacheHit, inspectCacheMiss, inspectRetry } = setupIntrospection<
-    Params,
-    Error
-  >({
-    requested,
-    runFx,
-    cacheHit,
-    lookupDone: lookupFx.doneData,
-    scheduleRetry,
-    evName,
-  });
+  const { inspectStart, inspectRun, inspectCacheHit, inspectCacheMiss, inspectCacheError, inspectRetry } =
+    setupIntrospection<Params, Error>({
+      requested,
+      runFx,
+      cacheHit,
+      lookupDone: lookupFx.doneData,
+      lookupFail: lookupFx.fail,
+      scheduleRetry,
+      evName,
+    });
 
   // ---- imperative start (startAsync) ----
   // A real Effect that resolves with THIS run's mapped data. Scope-correct by
@@ -1425,6 +1440,7 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
         aborted,
         cacheHit: inspectCacheHit,
         cacheMiss: inspectCacheMiss,
+        cacheError: inspectCacheError,
         retry: inspectRetry,
       },
       // INVARIANT: these setters mutate per-instance closure config (strategyConst /
