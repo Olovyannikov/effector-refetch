@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { allSettled, createEffect, fork } from 'effector';
-import { attachQueryLogger, createQuery, type QueryLogEntry } from '../src';
+import { attachQueryLogger, createQuery, inMemoryCache, type CacheAdapter, type QueryLogEntry } from '../src';
 
 describe('attachQueryLogger', () => {
   it('logs start -> run -> done with duration', async () => {
@@ -51,6 +51,26 @@ describe('attachQueryLogger', () => {
 
     expect(entries.some((e) => e.type === 'cache-miss')).toBe(true);
     expect(entries.some((e) => e.type === 'cache-hit')).toBe(true);
+  });
+
+  it('logs a failing cache read as cache-error, and the run still completes', async () => {
+    const entries: QueryLogEntry[] = [];
+    const fx = createEffect(async (n: number) => n);
+    const adapter = {
+      ...inMemoryCache(),
+      get: async () => {
+        throw new Error('IndexedDB unavailable');
+      },
+    } as CacheAdapter;
+    const query = createQuery({ effect: fx, cache: { adapter, staleAfter: 60_000 } });
+    attachQueryLogger(query, { handler: (e) => entries.push(e) });
+
+    const scope = fork();
+    await allSettled(query.start, { scope, params: 1 });
+
+    const failed = entries.find((e) => e.type === 'cache-error');
+    expect((failed?.error as Error | undefined)?.message).toBe('IndexedDB unavailable');
+    expect(entries.some((e) => e.type === 'done')).toBe(true);
   });
 
   it('computes durations per run under concurrent (TAKE_EVERY) runs', async () => {

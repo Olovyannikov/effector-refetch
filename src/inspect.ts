@@ -10,6 +10,7 @@ export type QueryLogType =
   | 'aborted'
   | 'cache-hit'
   | 'cache-miss'
+  | 'cache-error'
   | 'retry';
 
 export interface QueryLogEntry {
@@ -82,6 +83,9 @@ export function attachQueryLogger(
     ),
     watch<{ params: unknown }>(inspect.cacheMiss, ({ params }) =>
       emit({ query: name, type: 'cache-miss', params }),
+    ),
+    watch<{ params: unknown; error: unknown }>(inspect.cacheError, ({ params, error }) =>
+      emit({ query: name, type: 'cache-error', params, error }),
     ),
     watch<{ params: unknown; attempt: number; error: unknown }>(inspect.retry, ({ params, attempt, error }) =>
       emit({ query: name, type: 'retry', params, attempt, error }),

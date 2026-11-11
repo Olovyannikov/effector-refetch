@@ -1,11 +1,18 @@
 import { createEvent, sample, type Effect, type Event, type Store } from 'effector';
 
 /**
+ * The native Error. Resolved here at module scope, where the `Error` generic of the
+ * interfaces below does not shadow it — a failing cache read throws whatever the
+ * adapter throws, not the query's error type.
+ */
+type NativeError = Error;
+
+/**
  * Introspection subsystem: the lifecycle event stream consumed by the devtools
  * panels and `attachQueryLogger`. Pure leaf wiring — it samples core events into
  * dedicated `inspect.*` events and never feeds back into the request graph.
  *
- * Returns the five events it creates; the caller assembles them with the public
+ * Returns the events it creates; the caller assembles them with the public
  * `finished.*` / `aborted` events into the full `QueryInspect` object.
  */
 export interface IntrospectionContext<Params, Error> {
@@ -19,6 +26,11 @@ export interface IntrospectionContext<Params, Error> {
   >;
   cacheHit: Event<{ params: Params; result: unknown }>;
   lookupDone: Event<{ fresh: boolean; params: Params; entry: unknown }>;
+  /** A cache READ that rejected — a flaky adapter, or a throwing `cache.key`. */
+  lookupFail: Event<{
+    params: { params: Params; mapped: unknown; staleAfter: number; adapter: unknown };
+    error: NativeError;
+  }>;
   scheduleRetry: Event<{
     runId: number;
     params: Params;
@@ -31,12 +43,13 @@ export interface IntrospectionContext<Params, Error> {
 }
 
 export function setupIntrospection<Params, Error>(ctx: IntrospectionContext<Params, Error>) {
-  const { requested, runFx, cacheHit, lookupDone, scheduleRetry, evName } = ctx;
+  const { requested, runFx, cacheHit, lookupDone, lookupFail, scheduleRetry, evName } = ctx;
 
   const inspectStart = createEvent<{ params: Params }>(evName('inspect.start'));
   const inspectRun = createEvent<{ params: Params; attempt: number }>(evName('inspect.run'));
   const inspectCacheHit = createEvent<{ params: Params }>(evName('inspect.cacheHit'));
   const inspectCacheMiss = createEvent<{ params: Params }>(evName('inspect.cacheMiss'));
+  const inspectCacheError = createEvent<{ params: Params; error: NativeError }>(evName('inspect.cacheError'));
   const inspectRetry = createEvent<{ params: Params; attempt: number; error: Error }>(
     evName('inspect.retry'),
   );
@@ -55,11 +68,18 @@ export function setupIntrospection<Params, Error>(ctx: IntrospectionContext<Para
     fn: ({ params }) => ({ params }),
     target: inspectCacheMiss,
   });
+  // the run still proceeds (a failed read is treated as a miss) — this is the only
+  // place the failure is reported, so it must not be silent
+  sample({
+    clock: lookupFail,
+    fn: ({ params: req, error }) => ({ params: req.params, error }),
+    target: inspectCacheError,
+  });
   sample({
     clock: scheduleRetry,
     fn: (s) => ({ params: s.params, attempt: s.attempts + 1, error: s.error }),
     target: inspectRetry,
   });
 
-  return { inspectStart, inspectRun, inspectCacheHit, inspectCacheMiss, inspectRetry };
+  return { inspectStart, inspectRun, inspectCacheHit, inspectCacheMiss, inspectCacheError, inspectRetry };
 }
