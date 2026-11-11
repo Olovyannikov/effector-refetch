@@ -90,3 +90,8 @@ export const Route = createFileRoute('/users/$id')({
 - **Кэш-слой** (`$queryCache` + `dehydrate`/`hydrate`) компонуется как в
   [SSR и тестах](/ru/recipes/ssr-and-testing): положите адаптер в fork лоадера и верните
   `dehydrate(cache)` рядом с `values`.
+- **`abortController` лоадера** срабатывает, когда клиент отвалился или навигацию вытеснила
+  новая. Свяжите его с запросом — `signal.addEventListener('abort', () => allSettled(query.cancel, { scope }))`
+  — и никогда не кладите сигнал в параметры запроса: он попадёт в `$params`, который
+  сериализуется, и лоадер упадёт, упаковывая собственный возврат. См.
+  [Отмену запросов](/ru/recipes/cancellation#мост-для-внешнего-abortsignal-ssr-лоадеры).

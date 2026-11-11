@@ -77,6 +77,7 @@ const enSidebar = {
         { text: 'Infinite query (live demo)', link: '/recipes/infinite-query' },
         { text: 'Selecting slices', link: '/recipes/select' },
         { text: 'Error handling', link: '/recipes/error-handling' },
+        { text: 'Cancelling requests', link: '/recipes/cancellation' },
       ],
     },
     {
@@ -179,6 +180,7 @@ const ruSidebar = {
         { text: 'Infinite query (живое демо)', link: '/ru/recipes/infinite-query' },
         { text: 'Выбор срезов (select)', link: '/ru/recipes/select' },
         { text: 'Обработка ошибок', link: '/ru/recipes/error-handling' },
+        { text: 'Отмена запросов', link: '/ru/recipes/cancellation' },
       ],
     },
     {

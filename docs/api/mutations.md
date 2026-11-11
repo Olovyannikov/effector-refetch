@@ -16,6 +16,12 @@ addTodo.mutate({ text: 'Buy milk' });
 Exposes `{ start, mutate, reset, cancel, $data, $error, $status, $pending, $params,
 finished, aborted }` and works with `useUnit(mutation)`.
 
+`cancel` / `reset` behave exactly as on a query — the in-flight write is aborted for real, an
+in-flight `optimisticUpdate` rolls back, and `$status` falls back to the last settled value.
+See [Cancelling](/api/queries#cancelling-cancel-reset) for the full semantics and
+[Cancelling requests](/recipes/cancellation) for wiring an outside abort (a router, a closing
+dialog) to it.
+
 ## invalidate
 
 Refetch queries when something succeeds:
