@@ -79,21 +79,20 @@ function SearchResults() {
 ## Мост для внешнего AbortSignal (SSR-лоадеры)
 
 Фреймворки отдают лоадеру `AbortController`, который срабатывает, когда клиент отвалился или
-навигацию вытеснила новая. Свяжите его с `cancel` — один `fork()` соответствует одному запросу,
-так что отмена запусков этого scope и есть нужная гранулярность:
+навигацию вытеснила новая. Мост для него — `attachToAbortSignal`: один `fork()` соответствует
+одному запросу, так что отмена запусков этого scope и есть та гранулярность, которая у внешнего
+сигнала и так есть:
 
 ```ts
 // TanStack Start
 import { createFileRoute } from '@tanstack/react-router';
 import { allSettled, fork, serialize } from 'effector';
+import { attachToAbortSignal } from 'effector-refetch';
 
 export const Route = createFileRoute('/users/$id')({
   loader: async ({ abortController, params }) => {
     const scope = fork();
-
-    abortController.signal.addEventListener('abort', () => {
-      allSettled(userQuery.cancel, { scope });
-    });
+    attachToAbortSignal({ signal: abortController.signal, target: userQuery.cancel, scope });
 
     await allSettled(userQuery.start, { scope, params: Number(params.id) });
     return { values: serialize(scope) };
@@ -105,21 +104,37 @@ export const Route = createFileRoute('/users/$id')({
 Та же форма работает в любом лоадере, который отдаёт сигнал (Remix/React Router, `onBeforeRender`
 во Vike, `request.signal` в route handler'е Next.js).
 
-Если в одном лоадере несколько запросов, дайте scope одно событие аборта вместо перечисления
-`cancel`-ов на месте вызова:
+Две вещи, которые он делает и на которых обычно спотыкается ручной
+`signal.addEventListener('abort', …)`:
+
+- **Уже прерванный сигнал не выстрелит.** Если клиент отвалился до того, как лоадер начал
+  работу, `signal.aborted` уже `true`, а событие `abort` больше никогда не придёт — слушатель
+  будет ждать вечно. `attachToAbortSignal` проверяет это и срабатывает сразу.
+- **Отмена должна идти через `allSettled`, а не `scopeBind`.** Последний теряет контекст форка
+  по цепочке запуска, и отмена уедет мимо того scope, которому принадлежат запросы в полёте.
+
+`target` принимает и массив, а вызов возвращает функцию **dispose** — на случай, когда работа
+закончилась сама, а сигнал живёт дольше:
 
 ```ts
-import { createEvent, sample } from 'effector';
+const detach = attachToAbortSignal({
+  signal: abortController.signal,
+  target: [usersQuery.cancel, statsQuery.cancel],
+  scope,
+});
 
-export const requestAborted = createEvent();
-
-sample({ clock: requestAborted, target: [usersQuery.cancel, statsQuery.cancel] });
+try {
+  await allSettled(pageStarted, { scope, params: deps });
+} finally {
+  detach();
+}
 ```
 
+С [фабрикой](/ru/recipes/defaults) одна цель покрывает все созданные ею запросы — список не
+придётся поддерживать вручную:
+
 ```ts
-abortController.signal.addEventListener('abort', () => {
-  allSettled(requestAborted, { scope });
-});
+attachToAbortSignal({ signal: abortController.signal, target: api.cancel, scope });
 ```
 
 ::: warning Не передавайте сигнал параметром
@@ -150,9 +165,8 @@ sample({ clock: userRoute.closed, target: userQuery.cancel });
 ## Заметки
 
 - `cancel` работает **на весь запрос**: он аборит все запуски в полёте во всех полосах
-  (lanes). Полосы разделяют _вытеснение_, а не отмену, — поэтому «отменить вот эту одну строку»
-  сейчас не выразить. Этот пробел отслеживается в
-  [#95](https://github.com/Olovyannikov/effector-refetch/issues/95).
+  (lanes). Полосы разделяют _вытеснение_, а не отмену, — поэтому «отменить вот эту одну строку,
+  не трогая соседние» не выразить. Для такой ленты заводите отдельную квери.
 - Отмена откатывает [`optimisticUpdate`](/ru/recipes/optimistic), который был в полёте, — патч
   отменённой мутации не залипает.
 - `reset` не чистит `$params`: там лежат последние _запрошенные_ параметры, те самые, которые

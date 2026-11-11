@@ -20,11 +20,37 @@ invalidate();
 invalidate({ predicate: (q) => q === todos });
 ```
 
-`invalidate` is a plain event — scope-correct (`allSettled(invalidate, { scope })` for SSR/tests)
-and composable: `sample({ clock: loggedOut, target: invalidate })`. Only queries that have
-already run are refetched, with their last params.
+`invalidate` is a plain event — scope-correct and composable:
+`sample({ clock: loggedOut, target: invalidate })`. Only queries that have already run are
+refetched, with their last params.
+
+In SSR / tests it carries an optional payload, so `allSettled` needs `params` spelled out:
+
+```ts
+await allSettled(invalidate, { scope, params: undefined }); // all
+await allSettled(invalidate, { scope, params: { predicate: (q) => q === todos } });
+```
 
 Need separate groups? Use multiple factories.
+
+## Cancel a group of queries
+
+The same registry backs `cancel`, which aborts the in-flight runs of every query the factory
+created:
+
+```ts
+const { createQuery, cancel } = createQueryFactory();
+
+cancel(); // abort whatever is in flight
+await allSettled(cancel, { scope }); // SSR / tests
+```
+
+It takes no predicate, unlike `invalidate`: cancelling an idle query is already a no-op, so
+"cancel all" costs nothing, and narrowing to one query is just `todos.cancel()`. Mutations are
+not registered by the factory and are unaffected.
+
+Its natural pair is a framework abort in an SSR loader — see
+[Cancelling requests](/recipes/cancellation#bridging-an-outside-abortsignal-ssr-loaders).
 
 ## Read & write cache imperatively
 

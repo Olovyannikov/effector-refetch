@@ -38,6 +38,7 @@ const FUNCTIONS = [
   'update',
   'optimisticUpdate',
   'attachToRoute',
+  'attachToAbortSignal',
   'attachQueryLogger',
   // cache access & SSR
   'getQueryData',

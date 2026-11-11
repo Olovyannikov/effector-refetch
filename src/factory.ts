@@ -37,6 +37,17 @@ export interface QueryFactory {
   createMutation: typeof createMutation;
   /** Refetch all queries this factory created (that have run); pass a `predicate` to narrow. */
   invalidate: EventCallable<InvalidatePayload | void>;
+  /**
+   * Cancel the in-flight runs of every query this factory created. Scope-correct, so in
+   * SSR it cancels that request's runs and no others — pair it with `attachToAbortSignal`
+   * to hang a loader's abort on it.
+   *
+   * No predicate, unlike `invalidate`: cancelling an idle query is already a no-op, so
+   * "cancel all" costs nothing, and narrowing is just `someQuery.cancel()`. Staying
+   * `EventCallable<void>` is also what lets `allSettled(cancel, { scope })` and
+   * `attachToAbortSignal` accept it. Mutations are not registered and are unaffected.
+   */
+  cancel: EventCallable<void>;
   /** Queries created by this factory. */
   queries: ReadonlyArray<Query<any, any, any, any>>;
   defaults: QueryFactoryDefaults;
@@ -60,6 +71,7 @@ export function createQueryFactory(defaults: QueryFactoryDefaults = {}): QueryFa
   };
 
   const invalidate = createEvent<InvalidatePayload | void>();
+  const cancel = createEvent<void>();
   const registry: Array<Query<any, any, any, any>> = [];
 
   function factoryQuery<Params, Result, Error = unknown, Mapped = Result>(
@@ -90,6 +102,9 @@ export function createQueryFactory(defaults: QueryFactoryDefaults = {}): QueryFa
       fn: ({ params }) => params as Params,
       target: query.refetch,
     });
+    // group cancellation: unlike invalidate this needs neither state nor a predicate —
+    // a cancel on an idle query is already a no-op
+    sample({ clock: cancel, target: query.cancel });
     return query;
   }
 
@@ -107,6 +122,7 @@ export function createQueryFactory(defaults: QueryFactoryDefaults = {}): QueryFa
     createQuery: factoryQuery as typeof createQuery,
     createMutation: factoryMutation as typeof createMutation,
     invalidate,
+    cancel,
     queries: registry,
     defaults,
   };
