@@ -20,6 +20,7 @@ import type {
   ConcurrencyStrategy,
   CreateQueryConfig,
   CreateQueryHandlerConfig,
+  Json,
   Query,
   QueryStatus,
   ResolvedCache,
@@ -240,7 +241,22 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
   const $error = createStore<Error | null>(null, ser('$error'));
   const $status = createStore<QueryStatus>('initial', ser('$status'));
   const $stale = createStore(false, ser('$stale'));
-  const $params = createStore<Params | null>(null, ser('$params'));
+  // the user's codec deals in Params; the empty store is ours to handle, so it never
+  // reaches their callbacks
+  const paramsSer = config.paramsSerialize;
+  const $params = createStore<Params | null>(null, {
+    ...ser('$params'),
+    ...(paramsSer === 'ignore'
+      ? { serialize: 'ignore' as const }
+      : paramsSer
+        ? {
+            serialize: {
+              write: (p: Params | null) => (p === null ? null : paramsSer.write(p)),
+              read: (j: Json) => (j == null ? null : paramsSer.read(j)),
+            },
+          }
+        : {}),
+  });
 
   const aborted = createEvent<{ params: Params; reason: AbortReason }>(evName('aborted'));
   // farfetched-compatible `finished.skip`: the `enabled` gate prevented execution.

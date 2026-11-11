@@ -157,5 +157,6 @@ sample({ clock: userRoute.closed, target: userQuery.cancel });
   отменённой мутации не залипает.
 - `reset` не чистит `$params`: там лежат последние _запрошенные_ параметры, те самые, которые
   повторяют `invalidate` / `keepFresh` / рефетч по тегу.
-- `Date` (как и любой инстанс класса) в параметрах переживает SSR строкой — родственная ловушка
-  в том же сторе: [#96](https://github.com/Olovyannikov/effector-refetch/issues/96).
+- `Date` (как и любой инстанс класса) в параметрах переживает SSR строкой, если не дать ему
+  кодек — см. [`paramsSerialize`](/ru/api/queries#параметры-и-ssr-paramsserialize), родственную
+  ловушку в том же сторе.

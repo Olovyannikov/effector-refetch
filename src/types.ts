@@ -162,6 +162,24 @@ export interface CreateQueryConfig<Params, Result, Error, Mapped = Result> {
    */
   tags?: string[];
 
+  /**
+   * How `$params` crosses the SSR boundary. `$params` is serialized state — a hydrated
+   * client replays it for `refetchOnMount` / `invalidate` / `keepFresh` / tag refetches —
+   * so anything that is not JSON-shaped degrades on the way: a `Date` comes back a
+   * `string`, silently, with the types still promising a `Date`. Cache keys then differ
+   * across the boundary and the entries the server warmed are missed.
+   *
+   *   paramsSerialize: {
+   *     write: (p) => ({ from: p.from.toISOString() }),
+   *     read: (j) => ({ from: new Date(j.from) }),
+   *   }
+   *
+   * The callbacks never see the empty store — the engine handles `null` itself.
+   * `'ignore'` keeps the params out of the payload entirely, at the cost of a hydrated
+   * client no longer knowing what to refetch with.
+   */
+  paramsSerialize?: ParamsSerialize<Params>;
+
   /** Prefix for unit names (devtools). */
   name?: string;
   /** Label units for the effector inspector even without a `name` (uses `query`). */
@@ -284,6 +302,23 @@ export interface ResolvedCache<Params = unknown> {
 
 /** The native Error — the `Error` generics below shadow the global name. */
 type NativeCacheError = Error;
+
+/** JSON-shaped value — what `serialize(scope)` can carry. */
+export type Json = null | undefined | boolean | string | number | Json[] | { [k: string]: Json };
+
+/**
+ * Codec for `$params` across `serialize(scope)` / `fork({ values })`, or `'ignore'` to keep
+ * them out of the payload. Mirrors effector's own per-store `serialize` option.
+ */
+export type ParamsSerialize<Params> =
+  | 'ignore'
+  | {
+      // METHOD shorthand on purpose: its bivariant parameter check lets `read` declare the
+      // exact shape `write` produces (`(j: { from: string }) => …`) instead of taking a wide
+      // `Json` and casting. Sound in practice — the value read back IS what write emitted.
+      write(params: Params): Json;
+      read(json: Json): Params;
+    };
 
 /** Lifecycle event stream for devtools / logging. */
 export interface QueryInspect<Params, Mapped, Error> {
@@ -495,6 +530,8 @@ export interface CreateMutationConfig<Params, Result, Error, Mapped = Result> {
   concurrency?: ConcurrencyStrategy | Store<ConcurrencyStrategy> | ConcurrencyConfig<Params>;
   /** Gate execution on a barrier (e.g. token refresh). */
   barrier?: Barrier;
+  /** How `$params` crosses the SSR boundary — same meaning as on `createQuery`. */
+  paramsSerialize?: ParamsSerialize<Params>;
   name?: string;
   debug?: boolean;
 }
