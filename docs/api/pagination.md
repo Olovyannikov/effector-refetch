@@ -21,12 +21,36 @@ feed.refetchAll(); // re-fetches EVERY accumulated page (same pageParams), keepi
 
 Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`, `$status`,
 `$pending`, `$error` (plus the per-direction `$initialError` / `$nextPageError` /
-`$previousPageError`), `finished.{done,fail}`, and `useUnit(feed)` support. Loading flavors:
+`$previousPageError`), `finished.{done,fail}`, and `useUnit(feed)` support. Triggers:
+`start`, `fetchNext`, `fetchPrevious`, `refetchAll`, `prefetch`, `reset`. Loading flavors:
 `$isInitialLoading` (no pages yet — skeleton), `$isFetchingNextPage` / `$isFetchingPreviousPage`
 (which end is loading), `$isRefetching` (`refetchAll` reloading the window).
 
 `getNextPageParam` receives `{ lastPage, allPages, lastPageParam, allPageParams }` and
 returns the next page param, or `null`/`undefined` when there are no more pages.
+
+### Warming a feed that isn't on screen: `prefetch`
+
+A collapsed sidebar or the next tab can be loaded ahead of time. `start` is the wrong tool for
+that — if it fails, a list the user never opened renders as broken. `prefetch` is the
+background flavour:
+
+```ts
+feed.prefetch(params); // loads the first page quietly
+```
+
+- **Success** fills the window exactly as `start` would: `$pages`, the cursors, `$params`
+  (so `fetchNext` continues from there) and `$status: 'done'`.
+- **Failure** touches nothing — no `$error`, no `fail` status. The next real `start` is still
+  a cold first load.
+- It is a **no-op** once the feed has pages, or while a real run is in flight.
+- A `start` arriving mid-flight wins: it runs its own first load, and the prefetched page is
+  discarded rather than overwriting the fresh one.
+- `$isPrefetching` reports it, deliberately **outside** `$pending` — a feed being warmed in
+  the background must not read as loading (`$isInitialLoading` stays `false`).
+
+A locked [barrier](#barrier) holds the prefetch like any other fetch. `retry` does not apply:
+a background warm-up that fails is simply dropped.
 
 ### Pages as a stream (`finished.done`, `accumulate`)
 

@@ -93,6 +93,13 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
   fetchPrevious: EventCallable<void>;
   /** Re-fetch every accumulated page with its stored pageParam, keeping the window (unlike `start`). */
   refetchAll: EventCallable<void>;
+  /**
+   * Load the first page in the background, for a feed that is not on screen yet. On success
+   * the window is filled as `start` would fill it; on failure nothing is touched — no
+   * `$error`, no `fail` status — so the next real `start` is still a cold first load.
+   * A no-op once the feed has pages or while it is busy.
+   */
+  prefetch: EventCallable<Params>;
   reset: EventCallable<void>;
 
   $pages: Store<Page[]>;
@@ -111,6 +118,8 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
   $isFetchingPreviousPage: Store<boolean>;
   /** `refetchAll` is reloading the window over the visible pages. */
   $isRefetching: Store<boolean>;
+  /** A background `prefetch` is in flight. Deliberately NOT part of `$pending`. */
+  $isPrefetching: Store<boolean>;
   $error: Store<Error | null>;
   /**
    * The error of the LAST failure in one direction, so a feed can tell "the first page
@@ -142,6 +151,7 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
     isFetchingNextPage: Store<boolean>;
     isFetchingPreviousPage: Store<boolean>;
     isRefetching: Store<boolean>;
+    isPrefetching: Store<boolean>;
     error: Store<Error | null>;
     initialError: Store<Error | null>;
     nextPageError: Store<Error | null>;
@@ -150,6 +160,7 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
     fetchNext: EventCallable<void>;
     fetchPrevious: EventCallable<void>;
     refetchAll: EventCallable<void>;
+    prefetch: EventCallable<Params>;
     reset: EventCallable<void>;
   };
 }
@@ -232,6 +243,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   const fetchNext = createEvent<void>(evName('fetchNext'));
   const fetchPrevious = createEvent<void>(evName('fetchPrevious'));
   const refetchAll = createEvent<void>(evName('refetchAll'));
+  const prefetch = createEvent<Params>(evName('prefetch'));
   const reset = createEvent<void>(evName('reset'));
   // write seam for update()/optimisticUpdate(): patch the accumulated pages
   const setData = createEvent<Page[] | null>(evName('setData'));
@@ -419,10 +431,14 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   const $previousPageError = directionError('prepend', '$previousPageError');
 
   const $error = combine($refetchAllError, pageQuery.$error, (all, page) => all ?? page);
+  // a background prefetch fills the window without going through the page query, so the
+  // page query still reads 'initial' — the feed is loaded, and the status must say so
+  const $prefetched = createStore(false, ign('$prefetched')).reset([start, reset]);
   const $status = combine(
     $refetchAllError,
     pageQuery.$status,
-    (all, page): QueryStatus => (all ? 'fail' : page),
+    $prefetched,
+    (all, page, prefetched): QueryStatus => (all ? 'fail' : page === 'initial' && prefetched ? 'done' : page),
   );
 
   const $pages = $infinite.map((s) => s.pages);
@@ -459,6 +475,54 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     fn: (_current, { pages, pageParams }) => deriveState(pages, pageParams),
     target: replaceState,
   });
+
+  // ---- prefetch: warm the first page without touching the public status/error ----
+  // Straight through the effect (not pageQuery), so a failure stays invisible: a feed the
+  // user has not opened must not render as failed. Shares `$refetchToken`, so a start/reset
+  // during the warm-up discards the prefetched page instead of overwriting fresh state.
+  const prefetchFx = attach({
+    name: evName('prefetchFx'),
+    source: $refetchToken,
+    effect: async (token: number, params: Params) => {
+      // bind while still synchronous — after the first await this scope's context is gone
+      const waitForBarrier = config.barrier ? scopeBind(config.barrier.__.waitFx, { safe: true }) : null;
+      const fetchOne =
+        'effect' in config
+          ? (() => {
+              const bound = scopeBind(config.effect, { safe: true });
+              return (pageParam: PageParam) => bound({ params, pageParam }) as Promise<Page>;
+            })()
+          : (pageParam: PageParam) => call({ params, pageParam, mode: 'reset' });
+      if (waitForBarrier) await waitForBarrier();
+      return { params, page: await fetchOne(initialPageParam), token };
+    },
+  }) as unknown as Effect<Params, { params: Params; page: Page; token: number }, Error>;
+
+  sample({
+    clock: prefetch,
+    source: { inf: $infinite, pending: $pending, warming: prefetchFx.pending },
+    // nothing to warm up once the feed has pages, and never race a real run
+    filter: ({ inf, pending, warming }) => inf.pages.length === 0 && !pending && !warming,
+    fn: (_s, params: Params) => params,
+    target: prefetchFx,
+  });
+
+  // apply only if no start/reset happened while the page was in the air
+  const prefetchApplied = sample({
+    clock: prefetchFx.doneData,
+    source: $refetchToken,
+    filter: (current, { token }) => current === token,
+    fn: (_current, data) => data,
+  });
+  sample({
+    clock: prefetchApplied,
+    fn: ({ page }) => deriveState([page], [initialPageParam]),
+    target: replaceState,
+  });
+  // the feed must be usable afterwards: fetchNext reads $params
+  $params.on(prefetchApplied, (_p, { params }) => params ?? null);
+  $prefetched.on(prefetchApplied, () => true);
+  const $isPrefetching = prefetchFx.pending;
 
   // load first page
   sample({
@@ -548,6 +612,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     fetchNext,
     fetchPrevious,
     refetchAll,
+    prefetch,
     reset,
 
     $pages,
@@ -561,6 +626,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     $isFetchingNextPage,
     $isFetchingPreviousPage,
     $isRefetching,
+    $isPrefetching,
     $error,
     $initialError,
     $nextPageError,
@@ -582,6 +648,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
       isFetchingNextPage: $isFetchingNextPage,
       isFetchingPreviousPage: $isFetchingPreviousPage,
       isRefetching: $isRefetching,
+      isPrefetching: $isPrefetching,
       error: $error,
       initialError: $initialError,
       nextPageError: $nextPageError,
@@ -590,6 +657,7 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
       fetchNext,
       fetchPrevious,
       refetchAll,
+      prefetch,
       reset,
     }),
   };

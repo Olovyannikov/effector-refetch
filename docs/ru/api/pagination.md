@@ -21,12 +21,36 @@ feed.refetchAll(); // перезапрашивает ВСЕ накопленны
 
 Предоставляет `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`, `$status`,
 `$pending`, `$error` (плюс понаправленные `$initialError` / `$nextPageError` /
-`$previousPageError`), `finished.{done,fail}` и поддержку `useUnit(feed)`. Флаги загрузки:
+`$previousPageError`), `finished.{done,fail}` и поддержку `useUnit(feed)`. Триггеры:
+`start`, `fetchNext`, `fetchPrevious`, `refetchAll`, `prefetch`, `reset`. Флаги загрузки:
 `$isInitialLoading` (страниц ещё нет — скелетон), `$isFetchingNextPage` / `$isFetchingPreviousPage`
 (какой конец грузится), `$isRefetching` (`refetchAll` перезагружает окно).
 
 `getNextPageParam` получает `{ lastPage, allPages, lastPageParam, allPageParams }` и
 возвращает параметр следующей страницы либо `null`/`undefined`, когда страниц больше нет.
+
+### Прогрев ленты, которой нет на экране: `prefetch`
+
+Свёрнутую панель или соседнюю вкладку можно загрузить заранее. `start` для этого не годится:
+если он упадёт, список, который пользователь даже не открывал, отрисуется сломанным.
+`prefetch` — фоновый вариант:
+
+```ts
+feed.prefetch(params); // тихо загружает первую страницу
+```
+
+- **Успех** заполняет окно ровно так же, как это сделал бы `start`: `$pages`, курсоры,
+  `$params` (чтобы `fetchNext` продолжил с этого места) и `$status: 'done'`.
+- **Падение** не трогает ничего — ни `$error`, ни статус `fail`. Следующий настоящий `start`
+  останется холодной первой загрузкой.
+- Это **no-op**, если в ленте уже есть страницы или если идёт настоящий запуск.
+- `start`, пришедший во время прогрева, побеждает: он делает свою первую загрузку, а
+  прогретая страница отбрасывается, а не перетирает свежую.
+- Прогрев виден через `$isPrefetching` и намеренно **не входит** в `$pending`: лента, которую
+  греют в фоне, не должна читаться как загружающаяся (`$isInitialLoading` остаётся `false`).
+
+Закрытый [barrier](#barrier) держит `prefetch` как любой другой запрос. `retry` к нему не
+применяется: упавший фоновый прогрев просто отбрасывается.
 
 ### Страницы как поток (`finished.done`, `accumulate`)
 
