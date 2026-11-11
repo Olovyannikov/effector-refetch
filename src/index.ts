@@ -25,6 +25,8 @@ export {
   type CreateInfiniteQueryHandlerConfig,
   type GetNextPageParamCtx,
   type GetPreviousPageParamCtx,
+  type InfiniteDirection,
+  type InfiniteFailDirection,
 } from './infinite-query';
 export { combineQueries, type CombinedQueries } from './combine-queries';
 export { connectQuery } from './connect-query';
