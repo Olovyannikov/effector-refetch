@@ -1,5 +1,45 @@
 # effector-refetch
 
+## 0.26.0
+
+### Minor Changes
+
+- b8b8961: External cancellation: `attachToAbortSignal` and `factory.cancel`.
+
+  A query owns the `AbortSignal` it hands its own handler, but nothing let an **outside** signal — a router's / framework's `AbortController` — reach it. The intuitive workaround, putting the signal into the query params, breaks SSR serialization (`$params` is serialized state).
+  - `attachToAbortSignal({ signal, target, scope })` fires `target` (one event or an array, typically `query.cancel`) when the signal aborts, in the given scope. It returns `{ aborted, dispose }`: `aborted` tells you the signal was **already** aborted at attach time — such a signal never emits `abort` again and there is no run to cancel yet, so the only thing that helps is not starting the work. Guard on it in a loader, or a request whose client is already gone is served in full.
+  - `factory.cancel` aborts the in-flight runs of every query a factory created. No predicate, unlike `invalidate`: cancelling an idle query is already a no-op, and narrowing is just `someQuery.cancel()`.
+
+  Docs: the SSR-loader bridge in the cancellation recipe, and a "Cancel a group of queries" section next to the group invalidation one.
+
+- 371911d: `paramsSerialize` — a codec for `$params` across the SSR boundary.
+
+  `$params` is serialized state (a hydrated client replays it for `refetchOnMount` / `invalidate` / `keepFresh` / tag refetches), so anything not JSON-shaped degraded silently: a `Date` came back a `string` with the types still promising a `Date`, and a `cache.key` built from it produced a different key on each side of the boundary — so the entries the server warmed were missed and everything refetched.
+
+  ```ts
+  createQuery({
+    effect,
+    paramsSerialize: {
+      write: (p) => ({ from: p.from.toISOString() }),
+      read: (j) => ({ from: new Date(j.from) }),
+    },
+  });
+  ```
+
+  It passes straight through to effector's own per-store `serialize`, so `'ignore'` works too (farfetched's behaviour — at the cost of a hydrated client no longer knowing what to refetch with). `read` may declare the exact shape `write` produced, and the callbacks never see the empty store. Available on `createQuery`, `createMutation` and `createInfiniteQuery` (public params; page params still ride in `$infinite` and must be JSON-shaped).
+
+  Also declares `paramsSerialize` on `CreateMutationConfig`, which the engine already honoured.
+
+### Patch Changes
+
+- e6fbc45: Fix: a failing cache **read** no longer swallows the run.
+
+  `lookupFx` performs the cache read, and every downstream branch was clocked on its `doneData` — nothing was wired to its failure. So a rejecting `adapter.get()` (IndexedDB or a remote cache having a bad moment) or a throwing `cache.key` made the run vanish: no network call, no lifecycle event, `$status` left as it was, and `$data` still showing the **previous** params' result — stale data presented as fresh.
+
+  A failed read is now treated as a **miss** and falls through to the network, in the main path and in `prefetch`: a cache is an optimization, never the source of truth, so a flaky one should degrade to "slower", not to "the query stops working".
+
+  The failure is no longer silent either — `query.__.inspect.cacheError` (`{ params, error }`) reports it, and `attachQueryLogger` emits it as `cache-error`.
+
 ## 0.25.0
 
 ### Minor Changes
