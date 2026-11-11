@@ -48,7 +48,9 @@ jobs:
       # Publishing credentials, in order of preference:
       #   1. Trusted publishing (OIDC) — nothing to store. `id-token: write` above is
       #      the repo side; the other half is registering this workflow FILE NAME
-      #      (release.yml) as a Trusted Publisher on the package's npmjs.com page.
+      #      (release.yml) as a Trusted Publisher at
+      #      https://www.npmjs.com/package/effector-refetch/access
+      #      (on the PACKAGE, not under account settings — npm/cli#8910).
       #      pnpm attempts it first and logs `Skipped OIDC: ... (status code 404)`
       #      while that registration is missing.
       #   2. NPM_TOKEN — the fallback below. Delete it once OIDC publishes a release.
