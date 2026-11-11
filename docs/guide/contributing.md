@@ -101,12 +101,31 @@ These need to be enabled once by a maintainer (Actions can't configure them itse
 2. **Workflow permissions** — Settings → Actions → General → **Read and write permissions**, and
    **Allow GitHub Actions to create and approve pull requests** (for the Version Packages PR).
 3. **npm publishing credentials.** Two ways, in order of preference:
-   - **Trusted publishing (OIDC) — no token at all.** On npmjs.com: the package page → Settings →
-     **Trusted Publisher** → GitHub Actions, with owner `Olovyannikov`, repository
-     `effector-refetch`, workflow **`release.yml`** (the filename, not the workflow's display
-     name), environment left empty. `release.yml` already grants `id-token: write`, which is the
-     only thing the repo side needs. Once a release publishes this way, delete the `NPM_TOKEN`
-     secret — nothing to rotate, nothing to expire.
+   - **Trusted publishing (OIDC) — no token at all.** The setting lives on the **package**, not
+     on your account — looking under Account settings → Packages is the usual wrong turn
+     ([npm/cli#8910](https://github.com/npm/cli/issues/8910)). Go straight to:
+
+     **<https://www.npmjs.com/package/effector-refetch/access>**
+
+     There, under **Trusted Publishers**, click **Add provider** → GitHub Actions and fill in:
+
+     | field               | value              |
+     | ------------------- | ------------------ |
+     | Organization / user | `Olovyannikov`     |
+     | Repository          | `effector-refetch` |
+     | Workflow filename   | `release.yml`      |
+     | Environment         | _(leave empty)_    |
+
+     The workflow filename is the file in `.github/workflows/`, not the workflow's display name
+     ("Release"). The repo side is already done — `release.yml` grants `id-token: write`, CI runs
+     Node 22 and pnpm 11.5.1, and `package.json` carries the matching `repository` URL. Once a
+     release publishes this way, delete the `NPM_TOKEN` secret — nothing to rotate, nothing to
+     expire; optionally then set **Publishing access → Require two-factor authentication and
+     disallow tokens** on the same page.
+
+     The section only exists once a package has been published at least once, which is why it is
+     a post-first-release step rather than part of the initial setup.
+
    - **`NPM_TOKEN` secret** — the fallback, and what `release-codemod.yml` still uses. It must be
      a classic **Automation** token or a Granular token with _"bypass 2FA"_; a classic
      **Publish** token does **not** bypass 2FA and fails with

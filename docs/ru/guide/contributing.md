@@ -101,12 +101,31 @@ npx tsx examples/graphql.ts
 2. **Права воркфлоу** — Settings → Actions → General → **Read and write permissions** и
    **Allow GitHub Actions to create and approve pull requests** (для PR «Version Packages»).
 3. **Доступ к публикации в npm.** Два способа, по предпочтительности:
-   - **Trusted publishing (OIDC) — вообще без токена.** На npmjs.com: страница пакета → Settings
-     → **Trusted Publisher** → GitHub Actions, владелец `Olovyannikov`, репозиторий
-     `effector-refetch`, workflow **`release.yml`** (именно имя файла, а не отображаемое имя),
-     environment оставить пустым. `release.yml` уже выдаёт `id-token: write` — это всё, что
-     требуется со стороны репозитория. После первой успешной публикации таким способом секрет
-     `NPM_TOKEN` можно удалить: нечего ротировать и нечему протухать.
+   - **Trusted publishing (OIDC) — вообще без токена.** Настройка живёт у **пакета**, а не у
+     аккаунта: искать её в Account settings → Packages — типичный неверный поворот
+     ([npm/cli#8910](https://github.com/npm/cli/issues/8910)). Идите сразу сюда:
+
+     **<https://www.npmjs.com/package/effector-refetch/access>**
+
+     Там в разделе **Trusted Publishers** нажмите **Add provider** → GitHub Actions и заполните:
+
+     | поле                | значение            |
+     | ------------------- | ------------------- |
+     | Organization / user | `Olovyannikov`      |
+     | Repository          | `effector-refetch`  |
+     | Workflow filename   | `release.yml`       |
+     | Environment         | _(оставить пустым)_ |
+
+     Workflow filename — это имя файла в `.github/workflows/`, а не отображаемое имя воркфлоу
+     («Release»). Со стороны репозитория всё готово: `release.yml` выдаёт `id-token: write`, CI
+     поднимает Node 22 и pnpm 11.5.1, а в `package.json` указан соответствующий `repository`.
+     После первой публикации этим путём секрет `NPM_TOKEN` можно удалить — нечего ротировать и
+     нечему протухать; при желании там же выставьте **Publishing access → Require two-factor
+     authentication and disallow tokens**.
+
+     Раздел появляется только после того, как пакет был опубликован хотя бы раз, — поэтому это
+     шаг после первого релиза, а не часть начальной настройки.
+
    - **Секрет `NPM_TOKEN`** — запасной путь, и его по-прежнему использует `release-codemod.yml`.
      Нужен классический **Automation**-токен или Granular с _«bypass 2FA»_; классический
      **Publish**-токен 2FA **не** обходит и падает с
