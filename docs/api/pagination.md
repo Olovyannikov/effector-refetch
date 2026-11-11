@@ -29,6 +29,9 @@ Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`,
 `getNextPageParam` receives `{ lastPage, allPages, lastPageParam, allPageParams }` and
 returns the next page param, or `null`/`undefined` when there are no more pages.
 
+Offset feeds need a little more care than cursor feeds — local inserts and reorders shift the
+offsets of the pages you have not loaded yet. See [Offset pagination](/recipes/offset-pagination).
+
 ### Warming a feed that isn't on screen: `prefetch`
 
 A collapsed sidebar or the next tab can be loaded ahead of time. `start` is the wrong tool for
