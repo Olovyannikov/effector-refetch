@@ -29,17 +29,30 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
-      # Diagnostic: fails fast with a clear message if NPM_TOKEN is missing /
-      # read-only / 2FA-blocked, instead of surfacing later as an opaque publish error.
-      - name: Verify npm auth
-        run: npm whoami
+      # Diagnostic only — never fails the job. Two publishing paths are valid:
+      #   * trusted publishing (OIDC): there is no token, so `whoami` legitimately
+      #     reports E401 and the publish still succeeds;
+      #   * NPM_TOKEN: `whoami` must print the account. E401 there means the token is
+      #     expired/invalid, and E403 at publish time means it does not bypass 2FA
+      #     (a classic *Publish* token does not; an *Automation* one does).
+      - name: Verify npm auth (diagnostic)
+        run: npm whoami || echo "no npm token — expected when publishing via OIDC"
         continue-on-error: true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      # Opens/updates a "Version Packages" PR; on merge of that PR, publishes.
+      # Opens/updates a "Version Packages" PR; on merge of that PR, publishes
+      # (`pnpm release` -> scripts/release.mjs, which also tags v<version>).
       # Requires repo Settings -> Actions -> General -> Workflow permissions ->
       #   "Allow GitHub Actions to create and approve pull requests" (enabled).
-      # Publishing also needs the NPM_TOKEN secret.
+      #
+      # Publishing credentials, in order of preference:
+      #   1. Trusted publishing (OIDC) — nothing to store. `id-token: write` above is
+      #      the repo side; the other half is registering this workflow FILE NAME
+      #      (release.yml) as a Trusted Publisher on the package's npmjs.com page.
+      #      pnpm attempts it first and logs `Skipped OIDC: ... (status code 404)`
+      #      while that registration is missing.
+      #   2. NPM_TOKEN — the fallback below. Delete it once OIDC publishes a release.
+      # See docs/guide/contributing.md -> "Required repository setup".
       - uses: changesets/action@v1
         with:
           version: pnpm changeset version

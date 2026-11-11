@@ -100,8 +100,22 @@ npx tsx examples/graphql.ts
    через Pages-артефакт.)
 2. **Права воркфлоу** — Settings → Actions → General → **Read and write permissions** и
    **Allow GitHub Actions to create and approve pull requests** (для PR «Version Packages»).
-3. **Секрет `NPM_TOKEN`** — классический **Automation**-токен (обходит 2FA) или Granular с
-   правом read+write на пакеты. Управляет `release.yml` и `release-codemod.yml`.
+3. **Доступ к публикации в npm.** Два способа, по предпочтительности:
+   - **Trusted publishing (OIDC) — вообще без токена.** На npmjs.com: страница пакета → Settings
+     → **Trusted Publisher** → GitHub Actions, владелец `Olovyannikov`, репозиторий
+     `effector-refetch`, workflow **`release.yml`** (именно имя файла, а не отображаемое имя),
+     environment оставить пустым. `release.yml` уже выдаёт `id-token: write` — это всё, что
+     требуется со стороны репозитория. После первой успешной публикации таким способом секрет
+     `NPM_TOKEN` можно удалить: нечего ротировать и нечему протухать.
+   - **Секрет `NPM_TOKEN`** — запасной путь, и его по-прежнему использует `release-codemod.yml`.
+     Нужен классический **Automation**-токен или Granular с _«bypass 2FA»_; классический
+     **Publish**-токен 2FA **не** обходит и падает с
+     `E403 … two-factor authentication … is required`.
+
+   pnpm сначала пробует OIDC и откатывается на токен, записывая в лог
+   `Skipped OIDC: ERR_PNPM_AUTH_TOKEN_EXCHANGE … (status code 404)`, когда доверенный издатель не
+   зарегистрирован, — этот 404 и означает, что первый пункт ещё не сделан.
+
 4. **GitHub App pkg.pr.new** — установите [`pkg-pr-new`](https://github.com/apps/pkg-pr-new) на
    репозиторий, чтобы канарейка публиковалась (до этого шаг — no-op / non-blocking).
 

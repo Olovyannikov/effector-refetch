@@ -83,14 +83,14 @@ Every pull request gets two automatic stands:
 
 Workflows under `.github/workflows/`:
 
-| Workflow              | Trigger         | What it does                                                                  |
-| --------------------- | --------------- | ----------------------------------------------------------------------------- |
-| `ci.yml`              | push / PR       | typecheck · lint · format:check · test (coverage) · build · attw · size-limit |
-| `release.yml`         | push to `main`  | changesets: opens a "Version Packages" PR; on its merge, publishes to npm     |
-| `docs.yml`            | push to `main`  | builds the docs and deploys them to GitHub Pages (Actions artifact)           |
-| `pr-preview.yml`      | pull_request    | builds the PR docs and uploads them as a downloadable artifact                |
-| `pkg-pr-new.yml`      | push / PR       | publishes a canary via pkg.pr.new                                             |
-| `release-codemod.yml` | manual dispatch | publishes the `effector-refetch-codemod` package (in `codemod/`) to npm       |
+| Workflow              | Trigger         | What it does                                                                                    |
+| --------------------- | --------------- | ----------------------------------------------------------------------------------------------- |
+| `ci.yml`              | push / PR       | typecheck · lint · format:check · test (coverage) · build · attw · size-limit                   |
+| `release.yml`         | push to `main`  | changesets: opens a "Version Packages" PR; on its merge, publishes to npm and tags `v<version>` |
+| `docs.yml`            | push to `main`  | builds the docs and deploys them to GitHub Pages (Actions artifact)                             |
+| `pr-preview.yml`      | pull_request    | builds the PR docs and uploads them as a downloadable artifact                                  |
+| `pkg-pr-new.yml`      | push / PR       | publishes a canary via pkg.pr.new                                                               |
+| `release-codemod.yml` | manual dispatch | publishes the `effector-refetch-codemod` package (in `codemod/`) to npm                         |
 
 ### Required repository setup
 
@@ -100,8 +100,22 @@ These need to be enabled once by a maintainer (Actions can't configure them itse
    via the Pages artifact.)
 2. **Workflow permissions** — Settings → Actions → General → **Read and write permissions**, and
    **Allow GitHub Actions to create and approve pull requests** (for the Version Packages PR).
-3. **`NPM_TOKEN` secret** — a classic **Automation** token (bypasses 2FA) or a Granular token with
-   read+write on packages. Drives `release.yml` and `release-codemod.yml`.
+3. **npm publishing credentials.** Two ways, in order of preference:
+   - **Trusted publishing (OIDC) — no token at all.** On npmjs.com: the package page → Settings →
+     **Trusted Publisher** → GitHub Actions, with owner `Olovyannikov`, repository
+     `effector-refetch`, workflow **`release.yml`** (the filename, not the workflow's display
+     name), environment left empty. `release.yml` already grants `id-token: write`, which is the
+     only thing the repo side needs. Once a release publishes this way, delete the `NPM_TOKEN`
+     secret — nothing to rotate, nothing to expire.
+   - **`NPM_TOKEN` secret** — the fallback, and what `release-codemod.yml` still uses. It must be
+     a classic **Automation** token or a Granular token with _"bypass 2FA"_; a classic
+     **Publish** token does **not** bypass 2FA and fails with
+     `E403 … two-factor authentication … is required`.
+
+   pnpm tries OIDC first and falls back to the token, logging
+   `Skipped OIDC: ERR_PNPM_AUTH_TOKEN_EXCHANGE … (status code 404)` when no trusted publisher is
+   registered — that 404 is the signal that step 3's first bullet has not been done.
+
 4. **pkg.pr.new GitHub App** — install [`pkg-pr-new`](https://github.com/apps/pkg-pr-new) on the
    repo so the canary workflow can publish (it's a no-op / non-blocking until then).
 
