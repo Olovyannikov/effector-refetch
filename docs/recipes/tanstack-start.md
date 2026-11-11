@@ -90,3 +90,8 @@ export const Route = createFileRoute('/users/$id')({
 - The **cache layer** (`$queryCache` + `dehydrate`/`hydrate`) composes as in
   [SSR & testing](/recipes/ssr-and-testing): put the adapter into the loader's fork and return
   `dehydrate(cache)` alongside `values`.
+- **The loader's `abortController`** fires when the client goes away or the navigation is
+  superseded. Bridge it to the query — `signal.addEventListener('abort', () => allSettled(query.cancel, { scope }))`
+  — and never put the signal into the query's params: it would land in `$params`, which is
+  serialized, and the loader would throw while packing its own return value. See
+  [Cancelling requests](/recipes/cancellation#bridging-an-outside-abortsignal-ssr-loaders).

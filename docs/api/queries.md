@@ -142,6 +142,47 @@ The same reason also rides on the run's `AbortSignal`: handlers (and the errors 
 replaced it), `'take-first-busy'` (TAKE_FIRST dropped it while its lane was busy),
 `'disabled'` (the `enabled` gate was off).
 
+## Cancelling: `cancel` / `reset`
+
+```ts
+query.cancel(); // abort what's in flight, keep the data
+query.reset(); //  abort what's in flight, clear back to `initial`
+```
+
+Both are plain `EventCallable<void>` — in a component they go through `useUnit`, in tests and
+SSR through `allSettled(query.cancel, { scope })`. Mutations expose the same pair.
+
+`cancel` aborts **every** in-flight run of the query in the current scope, across all
+concurrency lanes — lanes partition supersede, not cancellation. For each discarded run:
+
+- the handler's `signal` aborts for real, with an `AbortError` whose message is `'cancelled'`;
+- `aborted` fires with `{ params, reason: 'cancelled' }`;
+- `finished.done` / `finished.fail` / `finished.finally` stay silent — a cancelled run never
+  settles.
+
+What it leaves behind:
+
+- **`$data` survives.** Cancelling a refetch keeps the previous result on screen; `reset` is
+  what clears it.
+- **`$status` falls back to the last _settled_ status, not to `done`.** Cancel a refetch that
+  followed a failure and the status stays `fail`; cancel the very first run and it goes back
+  to `initial`.
+- **In-flight optimistic layers roll back**, so a cancelled mutation's patch doesn't stick.
+- On an already-settled query `cancel` is a **no-op** — it cannot flip `fail` into `done`.
+
+`reset` aborts the same way, then clears `$data` / `$error` and puts `$status` back to
+`initial`. What it does **not** clear is `$params`: that store holds the last _requested_
+params — the ones `invalidate` / `keepFresh` / a tag refetch replay — so it keeps the
+parameters of the run you just cancelled or reset.
+
+::: tip The signal lives in the handler, not in the params
+A run's `AbortSignal` arrives as the handler's **second argument** —
+`createRequestFx(async (params, { signal }) => …)` — through a synchronous side channel, never
+inside the params. Params are serialized state (`$params` ships through `serialize(scope)`),
+so putting a signal in them breaks SSR. To cancel from the _outside_ — a router abort, a page
+being left — bridge that signal to `cancel`: see [Cancelling requests](/recipes/cancellation).
+:::
+
 ## Operators
 
 `concurrency` / `retry` / `cache` are also standalone, composable operators — the inline

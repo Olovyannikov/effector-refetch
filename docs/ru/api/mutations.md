@@ -16,6 +16,12 @@ addTodo.mutate({ text: 'Купить молоко' });
 Предоставляет `{ start, mutate, reset, cancel, $data, $error, $status, $pending, $params,
 finished, aborted }` и работает с `useUnit(mutation)`.
 
+`cancel` / `reset` ведут себя ровно как у запроса: запись в полёте аборится по-настоящему,
+`optimisticUpdate` в полёте откатывается, а `$status` возвращается к последнему завершённому
+значению. Полная семантика — в [Отмене](/ru/api/queries#отмена-cancel-reset), а как связать с
+ней внешний аборт (роутер, закрывающийся диалог) — в
+[Отмене запросов](/ru/recipes/cancellation).
+
 ## invalidate
 
 Перезапросить запросы, когда что-то завершилось успешно:
