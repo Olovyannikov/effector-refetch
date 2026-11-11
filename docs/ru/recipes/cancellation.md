@@ -79,23 +79,29 @@ function SearchResults() {
 ## Мост для внешнего AbortSignal (SSR-лоадеры)
 
 Фреймворки отдают лоадеру `AbortController`, который срабатывает, когда клиент отвалился или
-навигацию вытеснила новая. Свяжите его с `cancel` — один `fork()` соответствует одному запросу,
-так что отмена запусков этого scope и есть нужная гранулярность:
+навигацию вытеснила новая. Мост для него — `attachToAbortSignal`: один `fork()` соответствует
+одному запросу, так что отмена запусков этого scope и есть та гранулярность, которая у внешнего
+сигнала и так есть:
 
 ```ts
 // TanStack Start
 import { createFileRoute } from '@tanstack/react-router';
 import { allSettled, fork, serialize } from 'effector';
+import { attachToAbortSignal } from 'effector-refetch';
 
 export const Route = createFileRoute('/users/$id')({
   loader: async ({ abortController, params }) => {
     const scope = fork();
-
-    abortController.signal.addEventListener('abort', () => {
-      allSettled(userQuery.cancel, { scope });
+    const { aborted, dispose } = attachToAbortSignal({
+      signal: abortController.signal,
+      target: userQuery.cancel,
+      scope,
     });
+    // клиент мог отвалиться ещё раньше — запускаться здесь значит грузить в пустоту
+    if (aborted) return { values: serialize(scope) };
 
     await allSettled(userQuery.start, { scope, params: Number(params.id) });
+    dispose();
     return { values: serialize(scope) };
   },
   component: UserPage,
@@ -105,21 +111,39 @@ export const Route = createFileRoute('/users/$id')({
 Та же форма работает в любом лоадере, который отдаёт сигнал (Remix/React Router, `onBeforeRender`
 во Vike, `request.signal` в route handler'е Next.js).
 
-Если в одном лоадере несколько запросов, дайте scope одно событие аборта вместо перечисления
-`cancel`-ов на месте вызова:
+**Главное здесь — `aborted`, и именно его упускает ручной слушатель.** Уже прерванный
+`AbortSignal` больше никогда не выстрелит `abort`, так что подписавшийся постфактум будет ждать
+вечно, — а поскольку в полёте ещё ничего нет, отмена всё равно ничего бы не дала. Помогает
+только **не начинать работу**, для этого флаг и нужен. Проигнорируете — запрос, чей клиент уже
+ушёл, будет обслужен целиком.
+
+`target` принимает и массив, а `dispose` отцепляет слушатель, когда работа закончилась сама, а
+сигнал живёт дольше:
 
 ```ts
-import { createEvent, sample } from 'effector';
+const { dispose } = attachToAbortSignal({
+  signal: abortController.signal,
+  target: [usersQuery.cancel, statsQuery.cancel],
+  scope,
+});
 
-export const requestAborted = createEvent();
-
-sample({ clock: requestAborted, target: [usersQuery.cancel, statsQuery.cancel] });
+try {
+  await allSettled(pageStarted, { scope, params: deps });
+} finally {
+  dispose();
+}
 ```
 
+::: warning Передавайте `scope`, если приложение форкает
+Он необязателен только там, где `fork()` не вызывают вовсе. Если scope есть, событие без него
+не дойдёт до состояния этого scope — мост будет выглядеть подключённым и не отменит ничего.
+:::
+
+С [фабрикой](/ru/recipes/defaults) одна цель покрывает все созданные ею запросы — список не
+придётся поддерживать вручную:
+
 ```ts
-abortController.signal.addEventListener('abort', () => {
-  allSettled(requestAborted, { scope });
-});
+attachToAbortSignal({ signal: abortController.signal, target: api.cancel, scope });
 ```
 
 ::: warning Не передавайте сигнал параметром
@@ -150,9 +174,8 @@ sample({ clock: userRoute.closed, target: userQuery.cancel });
 ## Заметки
 
 - `cancel` работает **на весь запрос**: он аборит все запуски в полёте во всех полосах
-  (lanes). Полосы разделяют _вытеснение_, а не отмену, — поэтому «отменить вот эту одну строку»
-  сейчас не выразить. Этот пробел отслеживается в
-  [#95](https://github.com/Olovyannikov/effector-refetch/issues/95).
+  (lanes). Полосы разделяют _вытеснение_, а не отмену, — поэтому «отменить вот эту одну строку,
+  не трогая соседние» не выразить. Для такой ленты заводите отдельную квери.
 - Отмена откатывает [`optimisticUpdate`](/ru/recipes/optimistic), который был в полёте, — патч
   отменённой мутации не залипает.
 - `reset` не чистит `$params`: там лежат последние _запрошенные_ параметры, те самые, которые

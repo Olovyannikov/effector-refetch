@@ -180,7 +180,8 @@ A run's `AbortSignal` arrives as the handler's **second argument** —
 `createRequestFx(async (params, { signal }) => …)` — through a synchronous side channel, never
 inside the params. Params are serialized state (`$params` ships through `serialize(scope)`),
 so putting a signal in them breaks SSR. To cancel from the _outside_ — a router abort, a page
-being left — bridge that signal to `cancel`: see [Cancelling requests](/recipes/cancellation).
+being left — bridge that signal with `attachToAbortSignal`: see
+[Cancelling requests](/recipes/cancellation).
 :::
 
 ## Operators

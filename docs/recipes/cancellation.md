@@ -76,23 +76,28 @@ back to what it was before the cancelled run. Use `reset` when you want the view
 ## Bridging an outside AbortSignal (SSR loaders)
 
 Frameworks hand loaders an `AbortController` that fires when the client goes away or the
-navigation is superseded. Wire it to `cancel` — one `fork()` is one request, so cancelling the
-scope's runs is exactly the right granularity:
+navigation is superseded. `attachToAbortSignal` bridges it — one `fork()` is one request, so
+cancelling that scope's runs is exactly the granularity an external signal has:
 
 ```ts
 // TanStack Start
 import { createFileRoute } from '@tanstack/react-router';
 import { allSettled, fork, serialize } from 'effector';
+import { attachToAbortSignal } from 'effector-refetch';
 
 export const Route = createFileRoute('/users/$id')({
   loader: async ({ abortController, params }) => {
     const scope = fork();
-
-    abortController.signal.addEventListener('abort', () => {
-      allSettled(userQuery.cancel, { scope });
+    const { aborted, dispose } = attachToAbortSignal({
+      signal: abortController.signal,
+      target: userQuery.cancel,
+      scope,
     });
+    // the client may already be gone — starting here would fetch for nobody
+    if (aborted) return { values: serialize(scope) };
 
     await allSettled(userQuery.start, { scope, params: Number(params.id) });
+    dispose();
     return { values: serialize(scope) };
   },
   component: UserPage,
@@ -102,21 +107,39 @@ export const Route = createFileRoute('/users/$id')({
 The same shape works in any loader that exposes a signal (Remix/React Router, Vike's
 `onBeforeRender`, a Next.js route handler's `request.signal`).
 
-With several queries in one loader, give the scope a single abort event instead of listing
-`cancel`s at the call site:
+**`aborted` is the part that matters, and the part a hand-rolled listener misses.** An
+`AbortSignal` that is already aborted never emits `abort` again, so a listener attached after
+the fact waits forever — and since there is no run in flight yet, cancelling achieves nothing
+either. The only thing that helps is **not starting the work**, which is what the flag is for.
+Skip it and a request whose client is already gone is served in full.
+
+`target` also takes an array, and `dispose` detaches the listener when the work finished on its
+own but the signal outlives it:
 
 ```ts
-import { createEvent, sample } from 'effector';
+const { dispose } = attachToAbortSignal({
+  signal: abortController.signal,
+  target: [usersQuery.cancel, statsQuery.cancel],
+  scope,
+});
 
-export const requestAborted = createEvent();
-
-sample({ clock: requestAborted, target: [usersQuery.cancel, statsQuery.cancel] });
+try {
+  await allSettled(pageStarted, { scope, params: deps });
+} finally {
+  dispose();
+}
 ```
 
+::: warning Pass `scope` whenever your app forks
+It is optional only for an app that never calls `fork()`. With a scope in play, a scope-less
+event never reaches that scope's state — the bridge looks wired and cancels nothing.
+:::
+
+With a [factory](/recipes/defaults), one target covers every query it built — no list to keep
+in sync:
+
 ```ts
-abortController.signal.addEventListener('abort', () => {
-  allSettled(requestAborted, { scope });
-});
+attachToAbortSignal({ signal: abortController.signal, target: api.cancel, scope });
 ```
 
 ::: warning Don't pass the signal as a param
@@ -146,9 +169,8 @@ before they reach the network.
 ## Notes
 
 - `cancel` is **whole-query**: it aborts every in-flight run across all concurrency lanes.
-  Lanes partition _supersede_, not cancellation — so a shared "cancel this one row" is not
-  expressible today. That gap is tracked in
-  [#95](https://github.com/Olovyannikov/effector-refetch/issues/95).
+  Lanes partition _supersede_, not cancellation — so "cancel this one row, not its neighbours"
+  is not expressible. Give such a feed its own query instead.
 - Cancelling rolls back an in-flight [`optimisticUpdate`](/recipes/optimistic), so a patch from
   a cancelled mutation doesn't stick.
 - `reset` does not clear `$params` — it holds the last _requested_ params, which

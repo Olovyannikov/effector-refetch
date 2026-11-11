@@ -30,6 +30,7 @@ export {
 } from './infinite-query';
 export { combineQueries, type CombinedQueries } from './combine-queries';
 export { connectQuery } from './connect-query';
+export { attachToAbortSignal, type AttachToAbortSignalConfig, type AbortSignalBridge } from './abort';
 export { concurrency, retry, cache, timeout, debounce, fallback, keepFresh, applyBarrier } from './operators';
 export {
   refetchOnWindowFocus,

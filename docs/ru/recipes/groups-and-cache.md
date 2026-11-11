@@ -20,11 +20,37 @@ invalidate();
 invalidate({ predicate: (q) => q === todos });
 ```
 
-`invalidate` — обычное событие: scope-корректно (`allSettled(invalidate, { scope })` для
-SSR/тестов) и композируемо: `sample({ clock: loggedOut, target: invalidate })`.
-Перезапрашиваются только запросы, которые уже выполнялись, с их последними параметрами.
+`invalidate` — обычное событие: scope-корректное и композируемое,
+`sample({ clock: loggedOut, target: invalidate })`. Перезапрашиваются только запросы, которые
+уже выполнялись, с их последними параметрами.
+
+В SSR и тестах у него необязательный payload, поэтому `allSettled` требует явный `params`:
+
+```ts
+await allSettled(invalidate, { scope, params: undefined }); // все
+await allSettled(invalidate, { scope, params: { predicate: (q) => q === todos } });
+```
 
 Нужны отдельные группы — используйте несколько фабрик.
+
+## Отмена группы запросов
+
+На том же реестре построен `cancel`: он прерывает запросы в полёте у всех квери, которые
+создала фабрика:
+
+```ts
+const { createQuery, cancel } = createQueryFactory();
+
+cancel(); // прервать всё, что в полёте
+await allSettled(cancel, { scope }); // SSR и тесты
+```
+
+Предиката, в отличие от `invalidate`, у него нет: отмена простаивающей квери — и так no-op,
+поэтому «отменить всё» ничего не стоит, а сузить до одной — это просто `todos.cancel()`.
+Мутации фабрика не регистрирует, их это не касается.
+
+Его естественная пара — аборт фреймворка в SSR-лоадере, см.
+[Отмену запросов](/ru/recipes/cancellation#мост-для-внешнего-abortsignal-ssr-лоадеры).
 
 ## Императивные чтение и запись кэша
 
