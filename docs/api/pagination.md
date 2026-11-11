@@ -20,12 +20,42 @@ feed.refetchAll(); // re-fetches EVERY accumulated page (same pageParams), keepi
 ```
 
 Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`, `$status`,
-`$pending`, `$error`, `finished.{done,fail}`, and `useUnit(feed)` support. Loading flavors:
+`$pending`, `$error` (plus the per-direction `$initialError` / `$nextPageError` /
+`$previousPageError`), `finished.{done,fail}`, and `useUnit(feed)` support. Loading flavors:
 `$isInitialLoading` (no pages yet — skeleton), `$isFetchingNextPage` / `$isFetchingPreviousPage`
 (which end is loading), `$isRefetching` (`refetchAll` reloading the window).
 
 `getNextPageParam` receives `{ lastPage, allPages, lastPageParam, allPageParams }` and
 returns the next page param, or `null`/`undefined` when there are no more pages.
+
+### Which end failed: per-direction errors
+
+`$error` is the aggregate — it goes non-null whatever failed, which is too coarse for a feed:
+a failed `fetchNext` should leave the list on screen with an inline "couldn't load more ·
+retry" row, not blow up the page. Each direction therefore has its own error store:
+
+```ts
+feed.$initialError; //      the first load failed — there are no pages, show a full-screen error
+feed.$nextPageError; //     fetchNext failed — keep the list, offer an inline retry
+feed.$previousPageError; // fetchPrevious failed
+```
+
+Each clears when that direction is retried (on the request, so the error disappears as the
+spinner appears) and on `start` / `reset`. A failure in one direction never clears another's,
+and a failed `refetchAll` touches none of them — it surfaces through `$error` / `$status`.
+
+Retrying needs no extra bookkeeping: a failed `fetchNext` leaves `nextPageParam` where it was,
+so calling `feed.fetchNext()` again re-requests the same page.
+
+```ts
+feed.finished.fail; // { params, error, direction: 'initial' | 'next' | 'previous' | 'refetchAll' }
+```
+
+::: tip `$status` stays feed-wide
+A failed `fetchNext` still flips `$status` to `'fail'` — it is the status of the last run, not
+of the list. Drive the UI from the direction stores (plus `$pages.length`) and keep `$status`
+for the simple "did anything fail" check.
+:::
 
 ### Bidirectional + windowing
 

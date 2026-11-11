@@ -20,12 +20,44 @@ feed.refetchAll(); // перезапрашивает ВСЕ накопленны
 ```
 
 Предоставляет `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`, `$status`,
-`$pending`, `$error`, `finished.{done,fail}` и поддержку `useUnit(feed)`. Флаги загрузки:
+`$pending`, `$error` (плюс понаправленные `$initialError` / `$nextPageError` /
+`$previousPageError`), `finished.{done,fail}` и поддержку `useUnit(feed)`. Флаги загрузки:
 `$isInitialLoading` (страниц ещё нет — скелетон), `$isFetchingNextPage` / `$isFetchingPreviousPage`
 (какой конец грузится), `$isRefetching` (`refetchAll` перезагружает окно).
 
 `getNextPageParam` получает `{ lastPage, allPages, lastPageParam, allPageParams }` и
 возвращает параметр следующей страницы либо `null`/`undefined`, когда страниц больше нет.
+
+### Какой конец упал: понаправленные ошибки
+
+`$error` — агрегат: он становится непустым, что бы ни упало, и для ленты это слишком грубо.
+Упавший `fetchNext` должен оставить список на экране и показать под ним строку «не удалось
+загрузить ещё · повторить», а не разнести всю страницу. Поэтому у каждого направления свой
+стор ошибки:
+
+```ts
+feed.$initialError; //      упала первая загрузка — страниц нет, показываем ошибку на весь экран
+feed.$nextPageError; //     упал fetchNext — список оставляем, предлагаем повтор строкой
+feed.$previousPageError; // упал fetchPrevious
+```
+
+Каждый очищается при повторе в том же направлении (на запросе, чтобы ошибка исчезала вместе с
+появлением спиннера) и на `start` / `reset`. Падение в одном направлении никогда не чистит
+чужую ошибку, а упавший `refetchAll` не трогает ни одну из них — он виден через
+`$error` / `$status`.
+
+Для повтора ничего дополнительно хранить не нужно: упавший `fetchNext` оставляет
+`nextPageParam` на месте, так что повторный `feed.fetchNext()` запросит ту же страницу.
+
+```ts
+feed.finished.fail; // { params, error, direction: 'initial' | 'next' | 'previous' | 'refetchAll' }
+```
+
+::: tip `$status` остаётся на всю ленту
+Упавший `fetchNext` по-прежнему переводит `$status` в `'fail'` — это статус последнего запуска,
+а не списка. Стройте интерфейс на понаправленных сторах (плюс `$pages.length`), а `$status`
+оставьте для простой проверки «упало ли вообще что-нибудь».
+:::
 
 ### Двунаправленность + окно
 

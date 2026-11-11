@@ -104,11 +104,20 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
   /** `refetchAll` is reloading the window over the visible pages. */
   $isRefetching: Store<boolean>;
   $error: Store<Error | null>;
+  /**
+   * The error of the LAST failure in one direction, so a feed can tell "the first page
+   * failed, show a full-screen error" from "page N+1 failed, keep the list and show an
+   * inline retry". Each clears when that direction is retried, and on `start` / `reset`.
+   * `$error` stays the aggregate of all of them (plus the window reload).
+   */
+  $initialError: Store<Error | null>;
+  $nextPageError: Store<Error | null>;
+  $previousPageError: Store<Error | null>;
   $params: Store<Params | null>;
 
   finished: {
     done: Event<{ params: Params; page: Page }>;
-    fail: Event<{ params: Params; error: Error }>;
+    fail: Event<{ params: Params; error: Error; direction: InfiniteFailDirection }>;
   };
 
   /** Write seam for `update`/`optimisticUpdate` — patches the accumulated pages. */
@@ -126,6 +135,9 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
     isFetchingPreviousPage: Store<boolean>;
     isRefetching: Store<boolean>;
     error: Store<Error | null>;
+    initialError: Store<Error | null>;
+    nextPageError: Store<Error | null>;
+    previousPageError: Store<Error | null>;
     start: EventCallable<Params>;
     fetchNext: EventCallable<void>;
     fetchPrevious: EventCallable<void>;
@@ -139,6 +151,17 @@ interface PageReq<Params, PageParam> {
   pageParam: PageParam;
   mode: 'reset' | 'append' | 'prepend';
 }
+
+/** Which load produced a page: the first load, or an end of the window. */
+export type InfiniteDirection = 'initial' | 'next' | 'previous';
+/** `finished.fail` also reports the window reload, which belongs to no single direction. */
+export type InfiniteFailDirection = InfiniteDirection | 'refetchAll';
+
+const DIRECTION_OF: Record<PageReq<unknown, unknown>['mode'], InfiniteDirection> = {
+  reset: 'initial',
+  append: 'next',
+  prepend: 'previous',
+};
 interface InfiniteState<PageParam, Page> {
   pages: Page[];
   pageParams: PageParam[];
@@ -367,6 +390,22 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   const $refetchAllError = createStore<Error | null>(null, ign('$refetchAllError'))
     .on(refetchAllFx.failData, (_e, error) => error)
     .reset([refetchAllFx, start, reset]);
+  // per-direction errors: which END of the feed failed. The page query is shared by
+  // start/fetchNext/fetchPrevious, so the direction comes from the failed request's mode.
+  const byMode = <T extends { params: PageReq<Params, PageParam> }>(
+    clock: Event<T>,
+    mode: PageReq<Params, PageParam>['mode'],
+  ) => sample({ clock, filter: ({ params: req }: T) => req.mode === mode });
+  const directionError = (mode: PageReq<Params, PageParam>['mode'], suffix: string) =>
+    createStore<Error | null>(null, ign(suffix))
+      .on(byMode(pageQuery.finished.fail, mode), (_e, { error }) => error)
+      // cleared by a retry in the SAME direction (the request, so the inline error goes
+      // away as the spinner appears), and by a restart of the whole feed
+      .reset([sample({ clock: pageQuery.start, filter: (req) => req.mode === mode }), start, reset]);
+  const $initialError = directionError('reset', '$initialError');
+  const $nextPageError = directionError('append', '$nextPageError');
+  const $previousPageError = directionError('prepend', '$previousPageError');
+
   const $error = combine($refetchAllError, pageQuery.$error, (all, page) => all ?? page);
   const $status = combine(
     $refetchAllError,
@@ -443,7 +482,9 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   });
 
   const finishedDone = createEvent<{ params: Params; page: Page }>(evName('finished.done'));
-  const finishedFail = createEvent<{ params: Params; error: Error }>(evName('finished.fail'));
+  const finishedFail = createEvent<{ params: Params; error: Error; direction: InfiniteFailDirection }>(
+    evName('finished.fail'),
+  );
   sample({
     clock: pageQuery.finished.done,
     fn: ({ params: req, result: page }) => ({ params: req.params, page }),
@@ -451,13 +492,21 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
   });
   sample({
     clock: pageQuery.finished.fail,
-    fn: ({ params: req, error }) => ({ params: req.params, error }),
+    fn: ({ params: req, error }) => ({
+      params: req.params,
+      error,
+      direction: DIRECTION_OF[req.mode],
+    }),
     target: finishedFail,
   });
   // a failed refetchAll keeps the current window intact and surfaces the error
   sample({
     clock: refetchAllFx.fail,
-    fn: ({ params, error }) => ({ params: params.params, error }),
+    fn: ({ params, error }) => ({
+      params: params.params,
+      error,
+      direction: 'refetchAll' as const,
+    }),
     target: finishedFail,
   });
 
@@ -491,6 +540,9 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     $isFetchingPreviousPage,
     $isRefetching,
     $error,
+    $initialError,
+    $nextPageError,
+    $previousPageError,
     $params,
 
     finished: { done: finishedDone, fail: finishedFail },
@@ -509,6 +561,9 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
       isFetchingPreviousPage: $isFetchingPreviousPage,
       isRefetching: $isRefetching,
       error: $error,
+      initialError: $initialError,
+      nextPageError: $nextPageError,
+      previousPageError: $previousPageError,
       start,
       fetchNext,
       fetchPrevious,
