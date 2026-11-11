@@ -68,7 +68,7 @@ export function useQuery<Params, Result, Error, Mapped, Data>(
   const mountRefetched = useRef(false);
   useEffect(() => {
     const mode = options?.refetchOnMount;
-    // has run ⇔ status !== 'initial'; void queries keep `params === null` (effector skips `undefined`)
+    // has run ⇔ status !== 'initial' — see the $params reducer in base-query.ts
     if (mountRefetched.current || !mode || state.status === 'initial' || !state.enabled) return;
     mountRefetched.current = true;
     if (mode === 'always' || state.stale) triggers.refetch((state.params ?? undefined) as Params);

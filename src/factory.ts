@@ -99,7 +99,9 @@ export function createQueryFactory(defaults: QueryFactoryDefaults = {}): QueryFa
           return false;
         }
       },
-      fn: ({ params }) => params as Params,
+      // `?? undefined`: a void query's stored `null` is a different cache key from the
+      // `undefined` a plain start passes (see invalidateTag)
+      fn: ({ params }) => (params ?? undefined) as Params,
       target: query.refetch,
     });
     // group cancellation: unlike invalidate this needs neither state nor a predicate —

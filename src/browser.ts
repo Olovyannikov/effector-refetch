@@ -29,7 +29,7 @@ function firedFor(query: AnyQuery, event: string): EventCallable<void> {
     sample({
       clock: fired,
       source: { params: query.$params, enabled: query.$enabled, status: query.$status },
-      // has run ⇔ status !== 'initial' (void queries keep `$params === null`, see keepFresh)
+      // has run ⇔ status !== 'initial' — see the $params reducer in base-query.ts
       filter: ({ enabled, status }) => enabled && status !== 'initial',
       fn: ({ params }) => (params ?? undefined) as never,
       target: query.refetch,

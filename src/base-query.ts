@@ -844,6 +844,11 @@ export function createBaseQuery<Params, Result, Error = unknown, Mapped = Result
     target: debounceSleepFx,
   });
 
+  // `?? null` because effector treats an `undefined` update as "skip" — which is why a VOID
+  // query keeps `$params === null` forever, indistinguishable from "never ran". Anything
+  // asking "has this query run?" must therefore read `$status !== 'initial'`, and anything
+  // replaying the stored params must send `params ?? undefined` (a plain `start()` passes
+  // `undefined`, and `null` is a DIFFERENT cache key).
   $params
     .on(tagged, (_p, t) => t.params ?? null)
     .on(cacheHit, (_p, h) => h.params ?? null)

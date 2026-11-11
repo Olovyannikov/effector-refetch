@@ -28,7 +28,10 @@ export function wireTagInvalidation(query: AnyQuery, tags: readonly string[]): v
     clock: invalidateTag,
     source: { params: query.$params, status: query.$status },
     filter: ({ status }, payload) => status !== 'initial' && matchesTag(payload, tags),
-    fn: ({ params }) => params,
+    // `?? undefined`: a void query stores `$params === null`, but a plain `start()` passes
+    // `undefined` — and those are different cache keys ("null" vs ""), so replaying the raw
+    // value would refetch into a second entry and the next start would serve the stale one
+    fn: ({ params }) => params ?? undefined,
     target: query.refetch,
   });
   // purge the cache namespace unconditionally: prefetch-warmed entries and entries
@@ -89,7 +92,9 @@ export function invalidate(config: InvalidateConfig): void {
           return false;
         }
       },
-      fn: ({ params }: { params: unknown; status: string }) => params,
+      // `?? undefined`: see the note in invalidateTag — a void query's `null` is a
+      // different cache key from the `undefined` a plain start passes
+      fn: ({ params }: { params: unknown; status: string }) => params ?? undefined,
       target: query.refetch,
     });
   }

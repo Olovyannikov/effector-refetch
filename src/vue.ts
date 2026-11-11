@@ -55,7 +55,7 @@ export function useQuery<Params, Result, Error, Mapped, Data>(
   // refetch-stale-on-mount (with the last params), opt-in
   onMounted(() => {
     const mode = options?.refetchOnMount;
-    // has run ⇔ status !== 'initial'; void queries keep `params === null` (effector skips `undefined`)
+    // has run ⇔ status !== 'initial' — see the $params reducer in base-query.ts
     if (!mode || u.status.value === 'initial' || !u.enabled.value) return;
     if (mode === 'always' || u.stale.value) u.refetch((u.params.value ?? undefined) as Params);
   });
