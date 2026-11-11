@@ -39,6 +39,14 @@ interface BaseInfiniteConfig<Params, PageParam, Page, Error = unknown> {
   getPreviousPageParam?: (ctx: GetPreviousPageParamCtx<PageParam, Page>) => PageParam | null | undefined;
   /** Cap accumulated pages — drops from the opposite end when exceeded. */
   maxPages?: number;
+  /**
+   * Keep the loaded pages in `$pages` (default `true`). With `false` the query keeps only
+   * the LAST page — enough to drive the cursors — and every page is delivered through
+   * `finished.done` instead, for feeds that normalize pages into their own store. Cursor
+   * callbacks then see that page alone as `lastPage` / `allPages`, `maxPages` is moot, and
+   * `refetchAll` reloads just the current page.
+   */
+  accumulate?: boolean;
   concurrency?: ConcurrencyStrategy;
   /**
    * Retry a failed page fetch, same shape as `createQuery`'s. Applies to `start`,
@@ -116,7 +124,7 @@ export interface InfiniteQuery<Params, PageParam, Page, Error = unknown> {
   $params: Store<Params | null>;
 
   finished: {
-    done: Event<{ params: Params; page: Page }>;
+    done: Event<{ params: Params; page: Page; pageParam: PageParam; direction: InfiniteDirection }>;
     fail: Event<{ params: Params; error: Error; direction: InfiniteFailDirection }>;
   };
 
@@ -281,8 +289,12 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     previousPageParam: null,
     hasPreviousPage: false,
   };
+  const accumulate = config.accumulate ?? true;
   const $infinite = createStore<InfiniteState<PageParam, Page>>(initial, ser('$infinite'))
     .on(pageQuery.finished.done, (state, { params: req, result: page }) => {
+      // not accumulating: the window IS the last page — the consumer keeps the rest
+      if (!accumulate) return deriveState([page], [req.pageParam]);
+
       let pages: Page[];
       let pageParams: PageParam[];
       if (req.mode === 'reset') {
@@ -481,13 +493,23 @@ export function createInfiniteQuery<Params, PageParam, Page, Error = unknown>(
     target: pageQuery.start,
   });
 
-  const finishedDone = createEvent<{ params: Params; page: Page }>(evName('finished.done'));
+  const finishedDone = createEvent<{
+    params: Params;
+    page: Page;
+    pageParam: PageParam;
+    direction: InfiniteDirection;
+  }>(evName('finished.done'));
   const finishedFail = createEvent<{ params: Params; error: Error; direction: InfiniteFailDirection }>(
     evName('finished.fail'),
   );
   sample({
     clock: pageQuery.finished.done,
-    fn: ({ params: req, result: page }) => ({ params: req.params, page }),
+    fn: ({ params: req, result: page }) => ({
+      params: req.params,
+      page,
+      pageParam: req.pageParam,
+      direction: DIRECTION_OF[req.mode],
+    }),
     target: finishedDone,
   });
   sample({

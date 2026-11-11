@@ -28,6 +28,43 @@ Exposes `$pages` (= `$data`), `$pageParams`, `$hasNextPage`, `$hasPreviousPage`,
 `getNextPageParam` receives `{ lastPage, allPages, lastPageParam, allPageParams }` and
 returns the next page param, or `null`/`undefined` when there are no more pages.
 
+### Pages as a stream (`finished.done`, `accumulate`)
+
+Every loaded page is announced with its cursor and which end it came from:
+
+```ts
+feed.finished.done; // { params, page, pageParam, direction: 'initial' | 'next' | 'previous' }
+```
+
+`direction` is what a normalizing consumer needs: `'initial'` means **replace** (a first load
+or a restart), `'next'` **append**, `'previous'` **prepend** — no diffing `$pages` to work it
+out.
+
+When the pages live in your own store — an entity map shared by several views, where the feed
+is just "which ids, in what order" — holding them twice is waste. `accumulate: false` turns
+that off:
+
+```ts
+const feed = createInfiniteQuery({
+  effect: fetchPageFx,
+  initialPageParam: 1,
+  getNextPageParam: ({ lastPage }) => lastPage.next,
+  accumulate: false,
+});
+
+sample({ clock: feed.finished.done, target: pagesReceived }); // your normalizer
+```
+
+The cursors keep working exactly as before — `fetchNext` walks the whole feed and
+`$hasNextPage` stays honest — but `$pages` holds only the last page. Consequences worth
+knowing:
+
+- Cursor callbacks see that one page: `lastPage` is it, `allPages` is `[it]`. A
+  `getNextPageParam` that counts across all pages (`allPages.flat().length`) needs the cursor
+  to come from the page body instead.
+- `maxPages` is moot (the window is one page).
+- `refetchAll` reloads just the current page.
+
 ### Which end failed: per-direction errors
 
 `$error` is the aggregate — it goes non-null whatever failed, which is too coarse for a feed:
