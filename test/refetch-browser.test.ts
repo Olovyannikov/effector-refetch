@@ -32,6 +32,21 @@ describe('refetchOnWindowFocus / refetchOnReconnect (no-scope)', () => {
     expect(calls).toBe(2);
   });
 
+  it('refetches a query without params (void) on focus', async () => {
+    let calls = 0;
+    const fx = createEffect(async () => ++calls);
+    const query = createQuery({ effect: fx });
+    teardowns.push(refetchOnWindowFocus(query));
+
+    query.start();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(1);
+
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(2);
+  });
+
   it('refetches when coming back online', async () => {
     let calls = 0;
     const fx = createEffect(async (id: number) => {

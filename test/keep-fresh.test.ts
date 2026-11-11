@@ -42,4 +42,26 @@ describe('keepFresh', () => {
     expect(calls).toBe(0);
     expect(scope.getState(query.$status)).toBe('initial');
   });
+
+  it('refetches a query without params (void) when the source changes', async () => {
+    let calls = 0;
+    const fx = createEffect(async () => {
+      calls++;
+      return calls;
+    });
+    const query = createQuery({ effect: fx });
+    const setLocale = createEvent<string>();
+    const $locale = createStore('ru').on(setLocale, (_s, v) => v);
+    keepFresh(query, { source: $locale });
+
+    const scope = fork();
+    await allSettled(query.start, { scope });
+    expect(calls).toBe(1);
+    // effector never stores `undefined`, so $params stays null for void queries
+    expect(scope.getState(query.$params)).toBeNull();
+
+    await allSettled(setLocale, { scope, params: 'en' });
+    expect(calls).toBe(2);
+    expect(scope.getState(query.$data)).toBe(2);
+  });
 });

@@ -28,9 +28,10 @@ function firedFor(query: AnyQuery, event: string): EventCallable<void> {
     fired = createEvent();
     sample({
       clock: fired,
-      source: { params: query.$params, enabled: query.$enabled },
-      filter: ({ enabled, params }) => enabled && params !== null,
-      fn: ({ params }) => params as never,
+      source: { params: query.$params, enabled: query.$enabled, status: query.$status },
+      // has run ⇔ status !== 'initial' — see the $params reducer in base-query.ts
+      filter: ({ enabled, status }) => enabled && status !== 'initial',
+      fn: ({ params }) => (params ?? undefined) as never,
       target: query.refetch,
     });
     byEvent.set(event, fired);

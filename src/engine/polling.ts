@@ -28,7 +28,8 @@ export function setupPolling<Params>(ctx: PollingContext<Params>): void {
   const { finishedDone, finishedFail, refresh, reset, $intervalMs, $enabled, $params, $status, nm, evName } =
     ctx;
 
-  const $pollId = createStore(0, nm('$pollId'));
+  // internal timer token — never part of SSR state
+  const $pollId = createStore(0, { ...nm('$pollId'), serialize: 'ignore' });
   const pollSleepFx = createEffect<
     { ms: number; payload: { id: number; params: Params | null } },
     { id: number; params: Params | null }
