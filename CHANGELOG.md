@@ -1,5 +1,26 @@
 # effector-refetch
 
+## 0.25.0
+
+### Minor Changes
+
+- 3daf56d: `createInfiniteQuery`: per-direction errors, so a failed `fetchNext` no longer looks like a failed feed.
+  - New stores `$initialError` / `$nextPageError` / `$previousPageError` (also on `@@unitShape`). Each holds the last failure of that direction, clears when that direction is retried and on `start` / `reset`, and never clears another direction's error. A failed `refetchAll` touches none of them.
+  - `finished.fail` now carries `direction: 'initial' | 'next' | 'previous' | 'refetchAll'`.
+  - `$error` / `$status` keep their current aggregate meaning — additive, nothing breaks.
+
+- 3daf56d: `createInfiniteQuery`: consume pages as a stream, with an opt-out of accumulation.
+  - `finished.done` now carries `pageParam` and `direction: 'initial' | 'next' | 'previous'`, so a normalizing consumer knows whether to replace, append or prepend without diffing `$pages`.
+  - New `accumulate: false` option: the query keeps only the last page (enough to drive the cursors) and every page arrives through `finished.done` — for feeds whose pages belong in an external normalized store. With it, cursor callbacks see that page alone, `maxPages` is moot, and `refetchAll` reloads just the current page.
+
+  Both additive; `accumulate` defaults to `true` and the window behaves exactly as before.
+
+- 3daf56d: `createInfiniteQuery`: `prefetch(params)` — warm a feed that is not on screen yet.
+
+  `start` was the only way to load a collapsed sidebar or the next tab ahead of time, and a failure there rendered a list the user never opened as broken. `prefetch` loads the first page in the background: on success the window is filled exactly as `start` would fill it (pages, cursors, `$params`, `$status: 'done'`); on failure nothing is touched, so the next real `start` is still a cold first load.
+
+  It is a no-op once the feed has pages or while a real run is in flight, a `start` arriving mid-flight wins (the prefetched page is discarded), and a locked barrier holds it. Reported by the new `$isPrefetching`, deliberately outside `$pending` so a background warm-up never reads as loading.
+
 ## 0.24.0
 
 ### Minor Changes
