@@ -24,19 +24,47 @@ describe('attachToAbortSignal', () => {
     expect(scope.getState(query.$pending)).toBe(false);
   });
 
-  it('fires immediately when the signal is already aborted', async () => {
-    const { fx } = abortableDeferred<number, string>();
+  it('reports an already-aborted signal, so the caller can skip the work entirely', async () => {
+    let calls = 0;
+    const query = createQuery({ handler: async (n: number) => `v${n}` });
+    const scope = fork();
+    const ac = new AbortController();
+    ac.abort(); // the client went away before the loader got going
+
+    const { aborted } = attachToAbortSignal({ signal: ac.signal, target: query.cancel, scope });
+    expect(aborted).toBe(true);
+
+    // the loader guards on it — nothing runs for a client that is already gone
+    if (!aborted) {
+      calls++;
+      await allSettled(query.start, { scope, params: 1 });
+    }
+    expect(calls).toBe(0);
+    expect(scope.getState(query.$status)).toBe('initial');
+  });
+
+  it('reports a live signal as not aborted', () => {
+    const query = createQuery({ handler: async (n: number) => n });
+    const ac = new AbortController();
+
+    const { aborted } = attachToAbortSignal({ signal: ac.signal, target: query.cancel, scope: fork() });
+
+    expect(aborted).toBe(false);
+  });
+
+  it('still cancels a run that is already in flight when attached late', async () => {
+    const { fx, signals } = abortableDeferred<number, string>();
     const query = createQuery({ effect: fx });
     const scope = fork();
     const ac = new AbortController();
     ac.abort();
 
-    let cancelled = 0;
-    query.cancel.watch(() => cancelled++);
+    const run = allSettled(query.start, { scope, params: 1 });
     attachToAbortSignal({ signal: ac.signal, target: query.cancel, scope });
     await tick();
 
-    expect(cancelled).toBe(1);
+    expect(signals[0].aborted).toBe(true);
+    await run;
   });
 
   it('fans out to several targets', async () => {
@@ -65,7 +93,7 @@ describe('attachToAbortSignal', () => {
     const query = createQuery({ effect: fx });
     const scope = fork();
     const ac = new AbortController();
-    const dispose = attachToAbortSignal({ signal: ac.signal, target: query.cancel, scope });
+    const { dispose } = attachToAbortSignal({ signal: ac.signal, target: query.cancel, scope });
 
     const run = allSettled(query.start, { scope, params: 1 });
     dispose();

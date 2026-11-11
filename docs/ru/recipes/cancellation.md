@@ -92,9 +92,16 @@ import { attachToAbortSignal } from 'effector-refetch';
 export const Route = createFileRoute('/users/$id')({
   loader: async ({ abortController, params }) => {
     const scope = fork();
-    attachToAbortSignal({ signal: abortController.signal, target: userQuery.cancel, scope });
+    const { aborted, dispose } = attachToAbortSignal({
+      signal: abortController.signal,
+      target: userQuery.cancel,
+      scope,
+    });
+    // клиент мог отвалиться ещё раньше — запускаться здесь значит грузить в пустоту
+    if (aborted) return { values: serialize(scope) };
 
     await allSettled(userQuery.start, { scope, params: Number(params.id) });
+    dispose();
     return { values: serialize(scope) };
   },
   component: UserPage,
@@ -104,20 +111,17 @@ export const Route = createFileRoute('/users/$id')({
 Та же форма работает в любом лоадере, который отдаёт сигнал (Remix/React Router, `onBeforeRender`
 во Vike, `request.signal` в route handler'е Next.js).
 
-Две вещи, которые он делает и на которых обычно спотыкается ручной
-`signal.addEventListener('abort', …)`:
+**Главное здесь — `aborted`, и именно его упускает ручной слушатель.** Уже прерванный
+`AbortSignal` больше никогда не выстрелит `abort`, так что подписавшийся постфактум будет ждать
+вечно, — а поскольку в полёте ещё ничего нет, отмена всё равно ничего бы не дала. Помогает
+только **не начинать работу**, для этого флаг и нужен. Проигнорируете — запрос, чей клиент уже
+ушёл, будет обслужен целиком.
 
-- **Уже прерванный сигнал не выстрелит.** Если клиент отвалился до того, как лоадер начал
-  работу, `signal.aborted` уже `true`, а событие `abort` больше никогда не придёт — слушатель
-  будет ждать вечно. `attachToAbortSignal` проверяет это и срабатывает сразу.
-- **Отмена должна идти через `allSettled`, а не `scopeBind`.** Последний теряет контекст форка
-  по цепочке запуска, и отмена уедет мимо того scope, которому принадлежат запросы в полёте.
-
-`target` принимает и массив, а вызов возвращает функцию **dispose** — на случай, когда работа
-закончилась сама, а сигнал живёт дольше:
+`target` принимает и массив, а `dispose` отцепляет слушатель, когда работа закончилась сама, а
+сигнал живёт дольше:
 
 ```ts
-const detach = attachToAbortSignal({
+const { dispose } = attachToAbortSignal({
   signal: abortController.signal,
   target: [usersQuery.cancel, statsQuery.cancel],
   scope,
@@ -126,9 +130,14 @@ const detach = attachToAbortSignal({
 try {
   await allSettled(pageStarted, { scope, params: deps });
 } finally {
-  detach();
+  dispose();
 }
 ```
+
+::: warning Передавайте `scope`, если приложение форкает
+Он необязателен только там, где `fork()` не вызывают вовсе. Если scope есть, событие без него
+не дойдёт до состояния этого scope — мост будет выглядеть подключённым и не отменит ничего.
+:::
 
 С [фабрикой](/ru/recipes/defaults) одна цель покрывает все созданные ею запросы — список не
 придётся поддерживать вручную:
